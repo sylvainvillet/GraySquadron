@@ -994,6 +994,111 @@ class Economy(commands.Cog):
                             await self.change_user_item_quantity(user.id, 'deck', 'card', request_card_code, -1)
                             await ctx.send(f'{user.mention} has traded {card_name} to {ctx.author.mention}!')
 
+    @commands.command(aliases=['send_cards'])
+    async def send_card(self, ctx, *args):
+        """Send cards to another user. 
+
+        Specify either one or more card codes, or send all your cards matching the filters at once.
+        
+        Arguments:
+        - all: Send your entire deck
+        - h, hero, heroes: Affiliation filter for hero cards
+        - n, neutral, neutrals: Affiliation filter for neutral cards
+        - v, villain, villains: Affiliation filter for villain cards
+        - s, starter, starters: Rarity filter for starters cards
+        - c, common: Rarity filter for common cards
+        - u, uncommon: Rarity filter for uncommon cards
+        - r, rare: Rarity filter for rare cards
+        - l, legendary: Rarity filter for legendary cards
+        - Card codes: One or multiple card numbers seperated by a space
+
+        Examples:
+        - $send_card @user all
+        Sends all your cards to user
+
+        - $send_card @user hero
+        Sends all your hero cards to user
+
+        - $send_card @user v c
+        Sends all your common villain cards to user
+
+        - $send_card @user s
+        Sends all your starters cards to user
+
+        - $send_card @user h n r l
+        Sends all your cards of affiliation hero or neutral, and of rarity rare or legendary to user
+
+        - $send_card @user 01001
+        Sends 01001 to user
+
+        - $send_card @user 01001 01002
+        Sends 01001 and 01002 to user"""
+
+        try:
+            user, send_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+        except ValueError as err:
+            await ctx.send('{}\nType "$help send_card deck" for more info.'.format(err))
+            return
+        if user is None:
+            await ctx.send('Invalid arguments. You must specify a user to send the card to.\nType "$help send_card" for more info.')
+            return
+
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                cards_records = None
+                if card_codes:
+                    cards_records = await connection.fetch(
+                        """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND count > 0 AND deck.code = ANY($2::text[])""",
+                        ctx.author.id, card_codes)
+                else:
+                    cards_records = await connection.fetch(
+                        """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND count > 0 AND 
+                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        ctx.author.id, 
+                        affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                        rarity_codes if rarity_codes else self.card_rarity_list)
+
+                if not cards_records:
+                    await ctx.send(f'No cards to send matching the request.')
+                else:
+                    # Is the user provided card code(s), check that we have enough of them
+                    # Note that the same card code can be provided multiple times
+                    for card_code in card_codes:
+                        card_found = False
+                        for card in cards_records:
+                            if card['code'] == card_code:
+                                card_found = True
+                                if card['count'] < card_codes.count(card_code):
+                                    await ctx.send(f'Not enough cards to send matching the request.')
+                                    return
+                        if not card_found:
+                            await ctx.send(f'You don\'t have the card {card_code}.')
+                            return
+
+                    total_cards_sent = 0
+                    for card in cards_records:
+                        quantity = card['count']
+                        if card_codes:
+                            quantity = card_codes.count(card['code'])
+                            
+                        await self.change_user_item_quantity(ctx.author.id, 'deck', 'card', card['code'], -1*quantity)
+                        await self.change_user_item_quantity(user.id, 'deck', 'card', card['code'], quantity)
+                        total_cards_sent += quantity
+
+                    if card_codes:
+                        await ctx.send('{} has sent {} to {}!'.format(ctx.author.mention, 
+                            helper.join_with_and('{} ({}{})'.format(
+                                card['name'], 
+                                '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                                card['code']) for card in cards_records), 
+                                user.mention))
+                    else:
+                        await ctx.send(f'{ctx.author.mention} has sent {total_cards_sent} cards to {user.mention}!')
+
     # Background Tasks
     @tasks.loop(seconds=600, reconnect=True)
     async def game_role(self):
