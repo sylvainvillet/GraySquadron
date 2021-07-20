@@ -621,7 +621,7 @@ class Economy(commands.Cog):
         else:
             print(error)
 
-    @commands.command(aliases=['slots'])
+    @commands.command(aliases=['s', 'slots'])
     # @commands.has_any_role('Droid Engineer')
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
     async def slot(self, ctx):
@@ -645,8 +645,8 @@ class Economy(commands.Cog):
                            '<:swblaster:763109456774430821>', '<:PorgStab:761886195432423474>',
                            '<:SidSmile:768524163505061918>', '<:GraySquadron:761887065448251412>']
         symbol_string = '\n'.join(slot_emoji_list)
-        action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑', '🔟', '💯']
-        action_list = '\n'.join(['Spin!', 'Cash out current net', 'Previous Machine', 'Next Machine', 'Quit.', 'x10!', 'x100!!'])
+        action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
+        action_list = '\n'.join(['Spin!', 'Cash out current net', 'Previous Machine', 'Next Machine', 'Quit.'])
         control_string = '\n'.join(action_emoji_list)
         info_emoji_list = ['⬅', '➡', '🛑']
         stop = False
@@ -941,7 +941,7 @@ class SlotMachine:
     # Black, Red, Yellow, Green, Black
     state_list = [['SLOT IDLE', 0x000000], ['YOU LOST', 0xFF0800], ['SPINNING', 0xFFF700],
                   ['YOU WIN', 0x2EFF00], ['CLOSED', 0x000000]]
-    action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑', '🔟', '💯']
+    action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
     card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
     def __init__(self, economy, ctx):
@@ -1015,6 +1015,13 @@ class SlotMachine:
 
         if self.machine_level > 1:
             self.spins_left = math.floor(self.spins_left*4/3)
+
+        #odd levels multi: 1: x1, 2: x10, 3: x100...
+        if self.machine_level % 2 == 1: 
+            self.multi = int(10**((self.machine_level-1) / 2))
+        #even levels multi: 2: x3, 4: x30, 6: x300...
+        else:
+            self.multi = int(3*10**((self.machine_level-2) / 2))
 
     async def select_machine(self):
         """Function get get data for selected machine"""
@@ -1207,7 +1214,7 @@ class SlotMachine:
         embed.add_field(name='Spins', value=str(self.spins_left), inline=True)
         embed.add_field(name='Wallet', value=f'{self.player_credits_total:,} C', inline=True)
         embed.set_footer(
-            text=f'{self.selected_machine_cost*self.multi:,} Play Cost\nConfused? $slot_info\nTime: %s'
+            text=f'Play Cost: {self.selected_machine_cost*self.multi:,}\nConfused? $slot_info\nTime: %s'
                  % datetime.datetime.now().strftime('%Y-%b-%d %H:%M:%S'))
         return embed
 
@@ -1256,7 +1263,7 @@ class SlotMachine:
 
     async def play(self):
         """Play the slot machine"""
-        # action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑', '🔟', '💯']
+        # action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
         while self.spins_left > 0:
             user_input = await self.slot_reaction_waiter()
             # ROLL
@@ -1276,8 +1283,6 @@ class SlotMachine:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 await self.sent_embed.remove_reaction('⬅', self.sent_embed.author)
                 await self.sent_embed.remove_reaction('➡', self.sent_embed.author)
-                await self.sent_embed.remove_reaction('🔟', self.sent_embed.author)
-                await self.sent_embed.remove_reaction('💯', self.sent_embed.author)
                 for slot in range(0, len(self.active_slots) + 1):
                     self.state = 2
                     if slot == len(self.active_slots):
@@ -1315,22 +1320,6 @@ class SlotMachine:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 await self.next_machine()
                 await self.sent_embed.edit(embed=await self.generate_slot_embed())
-            # x10 Multi
-            elif user_input == '🔟':
-                await self.sent_embed.remove_reaction(user_input, self.author)
-                if self.machine_level < 3:
-                    await self.ctx.send('Your machine must be level 3 to use this feature!', delete_after=15)
-                else:
-                    self.multi = 10 if self.multi != 10 else 1
-                    await self.sent_embed.edit(embed=await self.generate_slot_embed())
-            # x100 Multi
-            elif user_input == '💯':
-                await self.sent_embed.remove_reaction(user_input, self.author)
-                if self.machine_level < 5:
-                    await self.ctx.send('Your machine must be level 5 to use this feature!', delete_after=15)
-                else:
-                    self.multi = 100 if self.multi != 100 else 1
-                    await self.sent_embed.edit(embed=await self.generate_slot_embed())
             # No response or STOP
             else:
                 self.spins_left = 0
