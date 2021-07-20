@@ -59,3 +59,20 @@ def record_to_dict(f_record, key_name: str):
                 except KeyError:
                     return_dict[key] = {f: v}
     return return_dict
+
+def join_with_and(values) -> str:
+    """Same as ', '.join() but with ' and ' between the last 2 values"""
+    valuesList = list(values)
+    length = len(valuesList)
+
+    # value1, value2, value3 and value4
+    if length > 2:
+        return ', '.join(valuesList[:-1]) + " and " + str(valuesList[-1])
+    # value1 and value2
+    elif length == 2:
+        return ' and '.join(valuesList)
+    # value 1
+    elif length == 1:
+        return valuesList[0]
+    # Empty
+    return ''

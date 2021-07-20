@@ -29,6 +29,7 @@ class Economy(commands.Cog):
         self.set_list = ['Legacies', 'Redemption', 'Spirit of Rebellion']
         self.card_rate_list = [0.45, 0.4, 0.14, 0.0099, 0.0001]
         self.item_code_card_rarity_dict = {'cp1': 'S', 'cp2': 'C', 'cp3': 'U', 'cp4': 'R', 'cp5': 'L'}
+        self.item_code_card_rarity_name_dict = {'cp1': 'Starter', 'cp2': 'Common', 'cp3': 'Uncommon', 'cp4': 'Rare', 'cp5': 'Legendary'}
         self.card_rarity_list = ['S', 'C', 'U', 'R', 'L']
         self.card_pack_type_dict = {'cpa': 'affiliation_name', 'cpf': 'faction_name', 'cps': 'set_name'}
         self.current_affiliation = random.choice(self.affiliation_list)
@@ -759,53 +760,123 @@ class Economy(commands.Cog):
 
     @commands.command()
     # @commands.has_any_role('Droid Engineer')
-    async def buy(self, ctx, item_code: str, quantity: int = 1):
-        """Provide item code and quantity to purchase. $buy <item_code> (quantity)"""
-        # Validate user quantity is a positive number
-        if quantity < 1:
-            return
-        discord_uid = ctx.author.id
-        user_credit_total = await self.get_credits(discord_uid)
-        # Validate item exists in database
-        try:
-            item_cost, item_quantity, user_quantity = await self.get_item_cost_quantity(discord_uid, item_code)
-            user_quantity = 0 if user_quantity is None else user_quantity
-        except IndexError:
-            await ctx.send('Sorry, that is not a valid item code! Please check $shop.')
-            return
-        # Validate this item is in stock
-        if item_quantity + user_quantity < quantity:
-            await ctx.send('Sorry, there are not enough available to purchase!')
-            return
-        total_cost = item_cost * quantity
-        # Validate user has funds to purchase item
-        if total_cost > user_credit_total:
-            await ctx.send('Sorry, you do not have enough credits for this purchase!')
-            return
-        _, _, tax_rate = self.credits_tier(user_credit_total)
-        try:
-            # Update item quantity
-            await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
-            item_category, item_subcategory = await self.get_item_category(item_code)
-            if item_category == 'deck':
-                cards_list, names_list = await self.open_cardpack(item_code, quantity)
-                for card_code in cards_list:
-                    await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
-                # TODO: cps never shows the cards you buy
-                await ctx.send(f'Cards revealed: {", ".join(names_list)}')
-        except Exception as e:
-            print(e)
-            return
+    async def buy(self, ctx, item_command: str, quantity: int = 1):
+        """Provide item code and quantity to purchase.
+
+        Arguments:
+        - item_code: Code from the item you want to buy (cp1, cp2, ...)
+        - all: Buy all the items in the shop (cp1 to cp5, cpa, cpf and cps)
+        - cpx: Buy all the cp1 to cp5 items
+        - quantity: If you provided an item_code, you can specify an optional quantity
+
+        Examples:
+        - $buy cp1
+        Buy one cp1 card
+
+        - $buy cp4 3
+        Buy 3 cp4 cards
+
+        - $buy all
+        Buy everything you can until the shop is empty or you run out of money
+
+        - $buy cpx
+        Buy all the cp1 to cp5 cards until the shop is empty or you run out of money"""
+
+        # Build the list of items to buy
+        item_code_list = []
+        buy_single_item = False
+        quantity_bought = 0
+        if item_command == "all":
+            item_code_list=list(self.item_code_card_rarity_dict.keys())+list(self.card_pack_type_dict.keys())
+        elif item_command == "cpx":
+            item_code_list=list(self.item_code_card_rarity_dict.keys())
         else:
-            # Update credits balances
-            tax_amount = math.floor(total_cost * tax_rate)
-            await self.change_credits(discord_uid, -1 * total_cost)
-            await self.change_credits(775808657199333376, tax_amount)
-            await ctx.send('Transaction successful!')
-            # TODO: Embed to display what was bought
-            # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
-            # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
-            # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+            buy_single_item = True
+            item_code_list.append(item_command)
+
+        messages = []
+        for item_code in item_code_list:
+            # Validate user quantity is a positive number
+            if quantity < 1:
+                return
+            discord_uid = ctx.author.id
+            user_credit_total = await self.get_credits(discord_uid)
+            # Validate item exists in database
+            try:
+                item_cost, item_quantity, user_quantity = await self.get_item_cost_quantity(discord_uid, item_code)
+                user_quantity = 0 if user_quantity is None else user_quantity
+            except IndexError:
+                await ctx.send('Sorry, that is not a valid item code! Please check $shop.')
+                return
+            
+            total_cost = 0
+
+            # Only handle quantity argument for single purchase, buy as many as possible otherwise
+            if buy_single_item:
+                # Validate this item is in stock
+                if item_quantity + user_quantity < quantity:
+                    await ctx.send('Sorry, there are not enough available to purchase!')
+                    return
+                total_cost = item_cost * quantity
+                # Validate user has funds to purchase item
+                if total_cost > user_credit_total:
+                    await ctx.send('Sorry, you do not have enough credits for this purchase!')
+                    return
+            else:
+                # No cards to buy, continue
+                if item_quantity + user_quantity == 0:
+                    continue
+                # Buy as many cards as possible
+                quantity = min(item_quantity + user_quantity, math.floor(user_credit_total / item_cost))
+                # Not enough money to buy more cards, exit
+                if quantity == 0:
+                    if quantity_bought == 0:
+                        await ctx.send('Sorry, you do not have enough credits for this purchase!')
+                    else:
+                        await ctx.send('{}\n{}'.format('\n'.join(messages), 
+                            f'You have bought {quantity_bought} card(s) but you do not have enough credits to buy all the cards requested.'))
+                    return
+                total_cost = item_cost * quantity
+
+            _, _, tax_rate = self.credits_tier(user_credit_total)
+            try:
+                # Update item quantity
+                quantity_bought += quantity
+                await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
+                item_category, item_subcategory = await self.get_item_category(item_code)
+                if item_category == 'deck':
+                    cards_list, names_list = await self.open_cardpack(item_code, quantity)
+                    for card_code in cards_list:
+                        await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
+
+                    item_name = ''
+                    if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
+                        item_name = self.item_code_card_rarity_name_dict[item_code]
+                    elif item_code == 'cpa':
+                        item_name = self.current_affiliation
+                    elif item_code == 'cpf':
+                        item_name = self.current_faction
+                    elif item_code == 'cps':
+                        item_name = self.current_set
+
+                    messages.append('{} cards revealed:\n- {}'.format(item_name, helper.join_with_and('{} ({})'.format(name, code) for code, name in zip(cards_list, names_list))))
+            except Exception as e:
+                print(e)
+                return
+            else:
+                # Update credits balances
+                tax_amount = math.floor(total_cost * tax_rate)
+                await self.change_credits(discord_uid, -1 * total_cost)
+                await self.change_credits(775808657199333376, tax_amount)
+                # TODO: Embed to display what was bought
+                # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
+                # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
+                # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+        if quantity_bought > 0:
+            messages.append('Transaction successful! For more details on a card, use \"$deck <card_numer>\".')
+        else:
+            messages.append('Nothing to buy!')
+        await ctx.send('\n'.join(messages))
 
     @buy.error
     async def buy_error(self, ctx, error):
