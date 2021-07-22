@@ -986,8 +986,7 @@ class SlotMachine:
 
         self.sent_embed = None
 
-    async def next_machine(self):
-        self.selected_machine_name = next(self.machine_type_names)
+    async def setup_selected_machine(self):
         if self.selected_machine_name == 'JEDI HERO':
             self.bonus = self.player_bonus_dict.get('Hero', 0)
         elif self.selected_machine_name == 'PORG LOVE':
@@ -1239,6 +1238,8 @@ class SlotMachine:
                 data = await bonus.fetch(self.author.id)
                 user_slot_stats_record = await connection.fetch("""SELECT machine_name, experience FROM gray.user_slot_stats 
                                                                 WHERE discord_uid = $1""", self.author.id)
+                self.selected_machine_name = await connection.fetchval("""SELECT machine_name FROM gray.slot_history 
+                                                                WHERE discord_uid = $1 ORDER BY "timestamp" DESC LIMIT 1""", self.author.id)
 
         def bonus_val(row):
             val = SlotMachine.card_bonus_dict.get(row['rarity_code'])
@@ -1254,8 +1255,12 @@ class SlotMachine:
         self.user_slot_stats_dict = helper.record_to_dict(user_slot_stats_record, 'machine_name')
         self.machine_count = len(list(self.machine_info_dict.keys()))
         self.machine_type_names = cycle(list(self.machine_info_dict.keys()))
-        self.selected_machine_name = self.machine_type_names
-        await self.next_machine()
+
+        # Set the iterator to the selected position
+        while self.selected_machine_name != next(self.machine_type_names):
+            pass
+        
+        await self.setup_selected_machine()
         self.player_credits_total = await self.economy.get_credits(self.author.id)
         self.sent_embed = await self.ctx.send(embed=await self.generate_slot_embed())
         for e in SlotMachine.action_emoji_list:
@@ -1313,12 +1318,14 @@ class SlotMachine:
             elif user_input == '⬅':
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 for _ in range(0, self.machine_count - 1):
-                    await self.next_machine()
+                    self.selected_machine_name = next(self.machine_type_names)
+                await self.setup_selected_machine()
                 await self.sent_embed.edit(embed=await self.generate_slot_embed())
             # Next
             elif user_input == '➡':
                 await self.sent_embed.remove_reaction(user_input, self.author)
-                await self.next_machine()
+                self.selected_machine_name = next(self.machine_type_names)
+                await self.setup_selected_machine()
                 await self.sent_embed.edit(embed=await self.generate_slot_embed())
             # No response or STOP
             else:
