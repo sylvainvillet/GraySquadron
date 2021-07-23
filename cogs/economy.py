@@ -25,6 +25,7 @@ class Economy(commands.Cog):
 
         # SW Card DB
         self.affiliation_list = ['Villain', 'Neutral', 'Hero']
+        self.affiliation_codes_list = ['villain', 'neutral', 'hero']
         self.faction_list = ['Command', 'Force', 'Rogue', 'General']
         self.set_list = ['Legacies', 'Redemption', 'Spirit of Rebellion']
         self.card_rate_list = [0.45, 0.4, 0.14, 0.0099, 0.0001]
@@ -872,7 +873,7 @@ class Economy(commands.Cog):
                 # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
                 # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
         if quantity_bought > 0:
-            messages.append('Transaction successful! For more details on a card, use \"$deck <card_numer>\".')
+            messages.append('Transaction successful! For more details about cards, use \"$deck <card_code(s)>\".')
         else:
             messages.append('Nothing to buy!')
         await ctx.send('\n'.join(messages))
@@ -884,14 +885,69 @@ class Economy(commands.Cog):
         else:
             print(error)
 
-    # TODO: hmm otherwise a filter? Like if you type "$deck villains" you only show the villains?
-    @commands.command()
-    async def deck(self, ctx, user: discord.Member = None):
-        """Displays your collection of cards"""
-        if user is None:
-            user = ctx.author
-        user_deck = Deck(self, ctx, user)
-        await user_deck.run()
+    @commands.command(aliases=['card', 'cards'])
+    async def deck(self, ctx, *args):
+        """Displays your collection of cards, or the one from another user.
+
+        You can use various arguments to filter the deck by affiliation and/or faction,
+        and you can use the "missing" argument to see card you don't own.
+        
+        Arguments:
+        - h, hero, heroes: Affiliation filter for hero cards
+        - n, neutral, neutrals: Affiliation filter for neutral cards
+        - v, villain, villains: Affiliation filter for villain cards
+        - s, starter, starters: Rarity filter for starters cards
+        - c, common: Rarity filter for common cards
+        - u, uncommon: Rarity filter for uncommon cards
+        - r, rare: Rarity filter for rare cards
+        - l, legendary: Rarity filter for legendary cards
+        - Card codes: One or multiple card numbers seperated by a space
+        - missing: Shows the cards you don't own, can be combined with filters
+
+        Examples:
+        - $deck
+        Shows your complete deck
+
+        - $deck @user villain
+        Shows all the villains cards from user
+
+        - $deck l
+        Shows all your legendary cards
+
+        - $deck h s
+        Shows all your hero starters cards
+
+        - $deck h n r l
+        Shows all your cards of affiliation hero or neutral, and of rarity rare or legendary
+
+        - $deck 01001 
+        Shows the card 01001
+
+        - $deck 01001 01002
+        Shows the cards 01001 and 01002
+
+        - $deck missing
+        Shows all the cards you don't own
+
+        - $deck missing v l
+        Shows all the villains legendary cards you don't own"""
+        missing = False
+        try:
+            if 'missing' in args:
+                missing = True
+            user, _, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
+        except ValueError as err:
+            await ctx.send('{}\nType "$help deck" for more info.'.format(err))
+
+        if missing and card_codes:
+            await ctx.send('Invalid arguments. You can\'t use both "missing" and card codes at the same time.\nType "$help request_card" for more info.')
+            return
+        else:
+            if user is None:
+                user = ctx.author
+
+            user_deck = Deck(self, ctx, user, affiliation_codes, rarity_codes, card_codes, missing)
+            await user_deck.run()
 
     # TODO: Maybe have $send_card and $request_card commands would make things clearer than $trade_card that many people don't know which way it's going
     @commands.command()
@@ -1585,7 +1641,7 @@ class Deck:
     card_action_emoji_list = ['↩', '◀', '▶', '🛑']
     card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
-    def __init__(self, economy, ctx, user):
+    def __init__(self, economy, ctx, user: discord.Member, affiliation_codes: list, rarity_codes: list, card_codes: list, missing: bool):
         self.empty = False  # If the users deck is completely empty
         self.is_card = False
 
@@ -1593,6 +1649,10 @@ class Deck:
         self.ctx = ctx
         self.author = ctx.author
         self.target = user
+        self.affiliation_codes = affiliation_codes
+        self.rarity_codes = rarity_codes
+        self.card_codes = card_codes
+        self.missing = missing
 
         self.user_deck_dict = {}  # gray.user_deck
         self.db_select_dict = {}  # gray.sw_card_db
@@ -1615,15 +1675,39 @@ class Deck:
         """Pull card info from database"""
         async with self.economy.client.pool.acquire() as connection:
             async with connection.transaction():
-                user_deck_record = await connection.fetch(
-                    """SELECT code, count, first_acquired FROM gray.user_deck WHERE discord_uid = $1 AND count > 0""",
-                    self.target.id)
+                user_deck_record = None
+                if len(self.card_codes) > 0:
+                    user_deck_record = await connection.fetch(
+                        """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND deck.count > 0 AND deck.code = ANY($2::text[])""",
+                        self.target.id, self.card_codes)
+                else:
+                    user_deck_record = await connection.fetch(
+                        """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND deck.count > 0 AND 
+                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        self.target.id, 
+                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list)
+
+                # Get the card codes you don't have
+                if self.missing:
+                    user_deck_record = await connection.fetch(
+                        """SELECT code FROM gray.sw_card_db 
+                        WHERE affiliation_code = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
+                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
+                        [card['code'] for card in user_deck_record])
 
                 for card in user_deck_record:
                     card_code = ''
                     for f, v in card.items():
                         if f == 'code':
                             card_code = v
+                            if self.missing:
+                                self.user_deck_dict[card_code] = {'count': 0, 'first_acquired': None}
                         else:
                             try:
                                 self.user_deck_dict[card_code].update({f: v})
@@ -1682,7 +1766,10 @@ class Deck:
 
         embed = discord.Embed(title='Set', description=self.current_set_name, colour=self.ctx.author.colour)
         embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
-        embed.add_field(name='Card Name', value=card_names_string, inline=True)
+        if self.missing:
+            embed.add_field(name='Missing cards', value=card_names_string, inline=True)
+        else:
+            embed.add_field(name='Cards', value=card_names_string, inline=True)
         embed.set_footer(
             text=f'Page {self.current_set_page_idx + 1}/{self.current_set_max_page} of Set {self.current_set_idx + 1}/{len(self.set_list)}')
         return embed
@@ -1710,8 +1797,12 @@ class Deck:
         imagesrc = current_card_dict.get('imagesrc')
         embed = discord.Embed(title=rarity_name, description=effect, colour=color)
         embed.set_image(url=imagesrc)
-        embed.set_footer(
-            text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
+        if first_acquired is None:
+            embed.set_footer(
+                text=f"{current_card_code}\n{position} of {set_name}\nYou do not own this card")
+        else:
+            embed.set_footer(
+                text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
         return embed
 
     async def deck_reaction_waiter(self) -> str:

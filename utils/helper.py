@@ -1,4 +1,5 @@
 import json
+import discord
 
 
 def get_config(key):
@@ -76,3 +77,67 @@ def join_with_and(values) -> str:
         return valuesList[0]
     # Empty
     return ''
+
+def is_valid_card_number_format(s: str) -> bool:
+    # Between 5 and 7 digits, can have a letter at the end
+    length = len(s)
+    if 5 <= length <= 7:
+        try:
+            int(s)
+            return True
+        except ValueError:
+            try:
+                int(s[:length-1])
+                return s[length-1:] in ['A', 'B', 'C', 'D']
+            except Exception as e:
+                return False
+            return False
+    else:
+        return False
+
+async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool, list, list, list):
+    """Parses the args looking for Discord user, "all", affiliation, rarity and card codes"""
+    user = None
+    has_all = False
+    affiliation_codes = []
+    rarity_codes = []
+    card_codes = []
+
+    # Parse all the arguments
+    for arg in args:
+        # Check if the argument is a user
+        try:
+            converter = commands.MemberConverter()
+            user = await converter.convert(ctx=ctx, argument=arg)
+        # Check if the argument is an affiliation
+        except commands.errors.MemberNotFound:
+            argLowerCase = arg.lower()
+            if argLowerCase == 'all':
+                has_all = True
+            elif argLowerCase in ['v', 'villain', 'villains']:
+                affiliation_codes.append('villain')
+            elif argLowerCase in ['h', 'hero', 'heroes']:
+                affiliation_codes.append('hero')
+            elif argLowerCase in ['n', 'neutral', 'neutrals']:
+                affiliation_codes.append('neutral')
+            elif argLowerCase in ['s', 'starter', 'starters']:
+                rarity_codes.append('S')
+            elif argLowerCase in ['c', 'common']:
+                rarity_codes.append('C')
+            elif argLowerCase in ['u', 'uncommon']:
+                rarity_codes.append('U')
+            elif argLowerCase in ['r', 'rare']:
+                rarity_codes.append('R')
+            elif argLowerCase in ['l', 'legendary']:
+                rarity_codes.append('L')
+            elif is_valid_card_number_format(arg):
+                card_codes.append(arg)
+            else:
+                raise ValueError('Invalid argument: {}'.format(arg))
+
+    if card_codes and (has_all or affiliation_codes or rarity_codes):
+        raise ValueError('Invalid arguments. You can\'t mix card numbers and batch.')
+    elif has_all and (affiliation_codes or rarity_codes):
+        raise ValueError('Invalid arguments. Use either \"all\" or affiliation/rarity name but not both.')
+
+    return user, has_all, affiliation_codes, rarity_codes, card_codes
