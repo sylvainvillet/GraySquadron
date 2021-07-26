@@ -34,7 +34,14 @@ class Economy(commands.Cog):
         self.item_code_card_rarity_dict = {'cp1': 'S', 'cp2': 'C', 'cp3': 'U', 'cp4': 'R', 'cp5': 'L'}
         self.item_code_card_rarity_name_dict = {'cp1': 'Starter', 'cp2': 'Common', 'cp3': 'Uncommon', 'cp4': 'Rare', 'cp5': 'Legendary'}
         self.card_rarity_list = ['S', 'C', 'U', 'R', 'L']
+        self.card_rarity_value = {'S': 4000, 'C': 15000, 'U': 80000, 'R': 400000, 'L': 5000000}
         self.card_pack_type_dict = {'cpa': 'affiliation_name', 'cpf': 'faction_name', 'cps': 'set_name'}
+
+        # Hardcoded stats about the card's deck to avoid unneeded SQL requests. To update if new cards are added
+        self.card_count = 1889
+        self.card_affiliation_count = {'hero': 615, 'neutral': 663, 'villain': 611}
+        self.card_rarity_count = {'S': 449, 'C': 513, 'U': 387, 'R': 387, 'L': 153}
+        
         self.current_affiliation = random.choice(self.affiliation_list)
         self.current_faction = random.choice(self.faction_list)
         self.current_set = random.choice(self.set_list)
@@ -950,6 +957,60 @@ class Economy(commands.Cog):
 
             user_deck = Deck(self, ctx, user, affiliation_codes, rarity_codes, card_codes, missing)
             await user_deck.run()
+
+    @commands.command(aliases=['deck_stat'])
+    async def deck_stats(self, ctx, user: discord.Member = None):
+        """$deck_stats @user"""
+        if user is None:
+            user = ctx.author
+
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                user_deck_record = await connection.fetch(
+                    """SELECT deck.code, deck.count, cards_db.affiliation_code, cards_db.rarity_code FROM gray.user_deck AS deck 
+                    INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                    WHERE deck.discord_uid = $1 AND deck.count > 0""",
+                    user.id)
+
+                total_cards = 0
+                unique_cards = 0
+                deck_value = 0
+                total_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
+                unique_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
+                total_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
+                unique_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
+
+                for card in user_deck_record:
+                    total_cards += card['count']
+                    unique_cards += 1
+                    total_rarity_dict[card['rarity_code']] += card['count']
+                    unique_rarity_dict[card['rarity_code']] += 1
+                    total_affiliation_dict[card['affiliation_code']] += card['count']
+                    unique_affiliation_dict[card['affiliation_code']] += 1
+                    deck_value += self.card_rarity_value[card['rarity_code']] * card['count']
+
+                embed = discord.Embed(title='Deck Stats', description='')
+                embed.set_author(name=user.display_name, icon_url=user.avatar_url)
+                embed.add_field(name='Total cards', value=total_cards)
+                embed.add_field(name='Completion', value='{}/{}'.format(unique_cards, self.card_count))
+                embed.add_field(name='Value', value=f'{deck_value:,}', inline=False)
+                embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
+                                                           'Neutrals: {} ({}/{})\n'
+                                                           'Villains: {} ({}/{})\n'
+                    .format(total_affiliation_dict['hero'], unique_affiliation_dict['hero'], self.card_affiliation_count['hero'],
+                    total_affiliation_dict['neutral'], unique_affiliation_dict['neutral'], self.card_affiliation_count['neutral'],
+                    total_affiliation_dict['villain'], unique_affiliation_dict['villain'], self.card_affiliation_count['villain']), inline=False)
+                embed.add_field(name='Rarity', value='Starters: {} ({}/{})\n'
+                                                     'Common: {} ({}/{})\n'
+                                                     'Uncommon: {} ({}/{})\n'
+                                                     'Rare: {} ({}/{})\n'
+                                                     'Legendary: {} ({}/{})'
+                    .format(total_rarity_dict['S'], unique_rarity_dict['S'], self.card_rarity_count['S'],
+                        total_rarity_dict['C'], unique_rarity_dict['C'], self.card_rarity_count['C'],
+                        total_rarity_dict['U'], unique_rarity_dict['U'], self.card_rarity_count['U'],
+                        total_rarity_dict['R'], unique_rarity_dict['R'], self.card_rarity_count['R'],
+                        total_rarity_dict['L'], unique_rarity_dict['L'], self.card_rarity_count['L']), inline=False)
+                await ctx.send(embed=embed)
 
     # TODO: Maybe have $send_card and $request_card commands would make things clearer than $trade_card that many people don't know which way it's going
     @commands.command()
