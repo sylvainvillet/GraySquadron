@@ -301,11 +301,11 @@ class Economy(commands.Cog):
             if 'HOPE' in message.content.upper().replace(' ', ''):
                 cd, _ = await self.check_cd(discord_uid, 'HOPE')
                 if cd:
-                    await message.add_reaction('<:rebel:761887570656231434>')
+                    await message.add_reaction(helper.get_config('rebel_emoji'))
                     await self.change_credits(discord_uid, self.credit_msg_reward)
                     await self.set_cd(discord_uid, 'HOPE', 'MI', 30)
             if 'VAPOR' in message.content.upper().replace(' ', ''):
-                await message.add_reaction('<:SidSmile:768524163505061918>')
+                await message.add_reaction(helper.get_config('sid_smile_emoji'))
 
     # Commands
     @commands.command()
@@ -459,8 +459,10 @@ class Economy(commands.Cog):
         elif two_credits_total < wager:
             await ctx.send(f'{opponent.mention} only has {two_credits_total} credits.')
         else:
-            emoji_list = ['<:swblaster:763109456774430821>', '<:sabergreen:839526247113555998>',
-                          '<:SidSmile:768524163505061918>', '🏃']
+            emoji_list = [helper.get_config('blaster_emoji'), 
+                          helper.get_config('saber_green_emoji'),
+                          helper.get_config('sid_smile_emoji'), 
+                          '🏃']
 
             async def duel_helper(one: discord.Member, two: discord.Member, emojis, b_count):
                 msg = await one.send(f'Dueling against {two.display_name} for {b_count} credits!'
@@ -649,11 +651,15 @@ class Economy(commands.Cog):
     @commands.command(aliases=['slots_info'])
     async def slot_info(self, ctx):
         """Information on the slot machine"""
-        slot_emoji_list = ['<:saberwhite:839526247209500712>',
-                           '<:saberred:839526247108575272>', '<:saberpurple:839526247159037982>',
-                           '<:saberblue:839526247146848284>', '<:sabergreen:839526247113555998>',
-                           '<:swblaster:763109456774430821>', '<:PorgStab:761886195432423474>',
-                           '<:SidSmile:768524163505061918>', '<:GraySquadron:761887065448251412>']
+        slot_emoji_list = [helper.get_config('saber_white_emoji'),
+                           helper.get_config('saber_red_emoji'),
+                           helper.get_config('saber_purple_emoji'),
+                           helper.get_config('saber_blue_emoji'),
+                           helper.get_config('saber_green_emoji'),
+                           helper.get_config('blaster_emoji'),
+                           helper.get_config('porg_stab_emoji'),
+                           helper.get_config('sid_smile_emoji'),
+                           helper.get_config('gray_squadron_emoji')]
         symbol_string = '\n'.join(slot_emoji_list)
         action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
         action_list = '\n'.join(['Spin!', 'Cash out current net', 'Previous Machine', 'Next Machine', 'Quit.'])
@@ -1227,11 +1233,16 @@ class Economy(commands.Cog):
 
 class SlotMachine:
     # TODO: Han Solo Machine
-    slot_emoji_list = ['<a:sw_slot:839526247255375892>', '<:saberwhite:839526247209500712>',
-                       '<:saberred:839526247108575272>', '<:saberpurple:839526247159037982>',
-                       '<:saberblue:839526247146848284>', '<:sabergreen:839526247113555998>',
-                       '<:swblaster:763109456774430821>', '<:PorgStab:761886195432423474>',
-                       '<:SidSmile:768524163505061918>', '<:GraySquadron:761887065448251412>']
+    slot_emoji_list = [helper.get_config('slot_emoji'),
+                       helper.get_config('saber_white_emoji'),
+                       helper.get_config('saber_red_emoji'),
+                       helper.get_config('saber_purple_emoji'),
+                       helper.get_config('saber_blue_emoji'),
+                       helper.get_config('saber_green_emoji'),
+                       helper.get_config('blaster_emoji'),
+                       helper.get_config('porg_stab_emoji'),
+                       helper.get_config('sid_smile_emoji'),
+                       helper.get_config('gray_squadron_emoji')]
     # Black, Red, Yellow, Green, Black
     state_list = [['SLOT IDLE', 0x000000], ['YOU LOST', 0xFF0800], ['SPINNING', 0xFFF700],
                   ['YOU WIN', 0x2EFF00], ['CLOSED', 0x000000]]
