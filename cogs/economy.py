@@ -23,6 +23,8 @@ class Economy(commands.Cog):
         self.credit_msg_reward = 100
         self.lotto_cost = 5
 
+        self.bot_discord_uid = helper.get_config('bot_discord_uid')
+
         # SW Card DB
         self.affiliation_list = ['Villain', 'Neutral', 'Hero']
         self.affiliation_codes_list = ['villain', 'neutral', 'hero']
@@ -288,7 +290,7 @@ class Economy(commands.Cog):
         """Trigger word triggered"""
         discord_uid = message.author.id
         # if discord_uid == 195747311136145409:
-        if discord_uid != 775808657199333376:
+        if discord_uid != self.bot_discord_uid:
             if 'HOPE' in message.content.upper().replace(' ', ''):
                 cd, _ = await self.check_cd(discord_uid, 'HOPE')
                 if cd:
@@ -341,7 +343,7 @@ class Economy(commands.Cog):
                 else:
                     cd_string += f"\n{lotto_type[3]}: {str(time_left).split('.')[0]}"
             await self.change_credits(discord_uid, prize_total - 1)
-            await self.change_credits(775808657199333376, 1)
+            await self.change_credits(self.bot_discord_uid, 1)
             header_string = f'{ctx.author.mention} {header_state} has {credits_total + prize_total - self.lotto_cost:,.0f} credits!'
             footer_string = f'Lotto cost: {self.lotto_cost} C'
 
@@ -400,7 +402,7 @@ class Economy(commands.Cog):
                                    f'\n{tax_count} credits were withheld for handling fees.')
                     await self.change_credits(giver, -1 * count)
                     await self.change_credits(taker, give_count)
-                    await self.change_credits(775808657199333376, tax_count)
+                    await self.change_credits(self.bot_discord_uid, tax_count)
                 else:
                     await ctx.send(f'You only have {giver_total} credits!')
             else:
@@ -559,7 +561,7 @@ class Economy(commands.Cog):
                     await self.change_credits(opponent.id, (-1 * wager) + (2 * prize))
                 else:
                     print('This is not in the result matrix.')
-                await self.change_credits(775808657199333376, (2 * tax))
+                await self.change_credits(self.bot_discord_uid, (2 * tax))
                 coin_string1 = f'{one_name}\n{two_name}'
                 coin_string2 = f'{one_credits_total:,} > {one_credits_total - wager:,} -> {await self.get_credits(ctx.author.id):,} C' \
                                f'\n{two_credits_total:,} > {two_credits_total - wager:,} -> {await self.get_credits(opponent.id):,} C'
@@ -867,7 +869,7 @@ class Economy(commands.Cog):
                 # Update credits balances
                 tax_amount = math.floor(total_cost * tax_rate)
                 await self.change_credits(discord_uid, -1 * total_cost)
-                await self.change_credits(775808657199333376, tax_amount)
+                await self.change_credits(self.bot_discord_uid, tax_amount)
                 # TODO: Embed to display what was bought
                 # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
                 # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
@@ -1127,7 +1129,7 @@ class Economy(commands.Cog):
                 _, _, tax_rate = self.credits_tier(credits_total)
                 tax_amount = math.ceil(credits_total * tax_rate)
                 await self.change_credits(discord_uid, -1 * tax_amount)
-                await self.change_credits(775808657199333376, tax_amount)
+                await self.change_credits(self.bot_discord_uid, tax_amount)
                 member = guild.get_member(discord_uid)
                 await member.send(f'You have been taxed {tax_rate} on your balance of {credits_total}.'
                                   f'\nThank you for being an integral cog of our society!')
@@ -1140,11 +1142,11 @@ class Economy(commands.Cog):
     @tasks.loop(minutes=1, reconnect=True)
     async def restock_shop(self):
         """Check every minute whether the shop needs restock"""
-        cd, _ = await self.check_cd(775808657199333376, 'RESTOCK')
-        cdm, _ = await self.check_cd(775808657199333376, 'RESTOCK_MINOR')
+        cd, _ = await self.check_cd(self.bot_discord_uid, 'RESTOCK')
+        cdm, _ = await self.check_cd(self.bot_discord_uid, 'RESTOCK_MINOR')
         if cd:
             # Update shop quantity
-            await self.set_cd(775808657199333376, 'RESTOCK', 'HH', 24, False)
+            await self.set_cd(self.bot_discord_uid, 'RESTOCK', 'HH', 24, False)
             async with self.client.pool.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute("""UPDATE gray.user_shop_quantity SET quantity = 0""")
@@ -1152,7 +1154,7 @@ class Economy(commands.Cog):
             await self.get_card_db_info()
         elif cdm:
             # Update shop quantity
-            await self.set_cd(775808657199333376, 'RESTOCK_MINOR', 'HH', 8, False)
+            await self.set_cd(self.bot_discord_uid, 'RESTOCK_MINOR', 'HH', 8, False)
             async with self.client.pool.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute("""UPDATE gray.user_shop_quantity
@@ -1696,8 +1698,8 @@ class Shop:
         embed.add_field(name='Item', value='\n'.join(item_name_list))
         embed.add_field(name='Cost', value='\n'.join(item_cost_list))
         embed.add_field(name='Code', value='\n'.join(item_code_list))
-        _, time_left = await self.economy.check_cd(775808657199333376, 'RESTOCK')
-        _, time_left_minor = await self.economy.check_cd(775808657199333376, 'RESTOCK_MINOR')
+        _, time_left = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK')
+        _, time_left_minor = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK_MINOR')
         major_text = 'Restocking' if time_left < datetime.timedelta(0) else str(time_left).split('.')[0]
         minor_text = 'Restocking' if time_left_minor < datetime.timedelta(0) else str(time_left_minor).split('.')[0]
         embed.set_footer(text=f"Major Restock: {major_text}"
