@@ -1719,7 +1719,7 @@ class Deck:
                     return
 
                 db_select_record = await connection.fetch(
-                    """SELECT set_code, * FROM gray.sw_card_db WHERE code = ANY($1::text[])""", card_list)
+                    """SELECT set_code, code, * FROM gray.sw_card_db WHERE code = ANY($1::text[])""", card_list)
                 self.db_select_dict = {}
                 for record in db_select_record:
                     set_code = ''
