@@ -34,6 +34,7 @@ class Economy(commands.Cog):
         self.item_code_card_rarity_dict = {'cp1': 'S', 'cp2': 'C', 'cp3': 'U', 'cp4': 'R', 'cp5': 'L'}
         self.item_code_card_rarity_name_dict = {'cp1': 'Starter', 'cp2': 'Common', 'cp3': 'Uncommon', 'cp4': 'Rare', 'cp5': 'Legendary'}
         self.card_rarity_list = ['S', 'C', 'U', 'R', 'L']
+        self.card_rarity_name_dict = {'S': 'Starter', 'C': 'Common', 'U': 'Uncommon', 'R': 'Rare', 'L': 'Legendary'}
         self.card_rarity_value = {'S': 4000, 'C': 15000, 'U': 80000, 'R': 400000, 'L': 5000000}
         self.card_pack_type_dict = {'cpa': 'affiliation_name', 'cpf': 'faction_name', 'cps': 'set_name'}
 
@@ -1018,50 +1019,161 @@ class Economy(commands.Cog):
                         total_rarity_dict['L'], unique_rarity_dict['L'], self.card_rarity_count['L']), inline=False)
                 await ctx.send(embed=embed)
 
-    # TODO: Maybe have $send_card and $request_card commands would make things clearer than $trade_card that many people don't know which way it's going
-    @commands.command()
-    async def trade_card(self, ctx, user: discord.Member, request_card_code: str):
-        """$trade_card @user <card_code>"""
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                card_quantity = await connection.fetchval(
-                    """SELECT count FROM gray.user_deck WHERE discord_uid = $1 AND code = $2""",
-                    user.id, request_card_code)
-                card_name = await connection.fetchval(
-                    """SELECT name FROM gray.sw_card_db WHERE code = $1""", request_card_code)
+    @commands.command(aliases=['request_cards', 'transfer_card', 'transfer_cards'])
+    async def request_card(self, ctx, *args):
+        """Request cards from another user. 
 
-                if card_quantity is None or card_quantity == 0:
-                    await ctx.send(f'{user.display_name} does not have {request_card_code} in their deck.')
+        Specify either one or more card codes, or request all cards matching the filters at once.
+        
+        Arguments:
+        - all: Request the user's entire deck
+        - h, hero, heroes: Affiliation filter for hero cards
+        - n, neutral, neutrals: Affiliation filter for neutral cards
+        - v, villain, villains: Affiliation filter for villain cards
+        - s, starter, starters: Rarity filter for starters cards
+        - c, common: Rarity filter for common cards
+        - u, uncommon: Rarity filter for uncommon cards
+        - r, rare: Rarity filter for rare cards
+        - l, legendary: Rarity filter for legendary cards
+        - Card codes: One or multiple card numbers seperated by a space
+
+        Examples:
+        - $request_card @user all
+        Requests all your cards from user
+
+        - $request_card @user hero
+        Requests all your hero cards from user
+
+        - $request_card @user v c
+        Requests all your common villain cards from user
+
+        - $request_card @user s
+        Requests all your starters cards from user
+
+        - $request_card @user h n r l
+        Requests all your cards of affiliation hero or neutral, and of rarity rare or legendary from user
+
+        - $request_card @user 01001
+        Requests 01001 from user
+
+        - $request_card @user 01001 01002
+        Requests 01001 and 01002 from user"""
+
+        try:
+            user, request_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+        except ValueError as err:
+            await ctx.send('{}\nType "$help request_card" for more info.'.format(err))
+            return
+        if user is None:
+            await ctx.send('Invalid arguments. You must specify a user.\nType "$help request_card" for more info.')
+            return
+        elif not (request_all or affiliation_codes or rarity_codes or card_codes):
+            await ctx.send('Invalid arguments. You must specify something to request.\nType "$help request_card" for more info.')
+            return
+
+        async def fetch_cards_records() -> list:
+            async with self.client.pool.acquire() as connection:
+                async with connection.transaction():
+                    if card_codes:
+                        return await connection.fetch(
+                            """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND count > 0 AND deck.code = ANY($2::text[])""",
+                            user.id, card_codes)
+                    else:
+                        return await connection.fetch(
+                            """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND count > 0 AND 
+                            cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                            user.id,
+                            affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                            rarity_codes if rarity_codes else self.card_rarity_list)
+
+        cards_records = await fetch_cards_records()
+
+        if not cards_records:
+            await ctx.send(f'No cards matching the request.')
+        else:
+            # If the user provided card code(s), check that we have enough of them
+            # Note that the same card code can be provided multiple times
+            for card_code in card_codes:
+                card_found = False
+                for card in cards_records:
+                    if card['code'] == card_code:
+                        card_found = True
+                        if card['count'] < card_codes.count(card_code):
+                            await ctx.send(f'Not enough {card_code} cards matching the request.')
+                            return
+                if not card_found:
+                    await ctx.send(f'You don\'t have the card {card_code}.')
+                    return
+
+            trade_emojis = ['✅', '🚫']
+            total_card_quantity = 0
+            for card in cards_records:
+                total_card_quantity += card['count']
+
+            if card_codes:
+                await ctx.send('{} requested...'.format(helper.join_with_and('{} ({}{})'.format(
+                    card['name'], 
+                    '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                    card['code']) for card in cards_records)))
+            else:
+                await ctx.send(f'{total_card_quantity} cards requested...')
+
+            async def request_card_helper() -> str:
+                msg = None
+                if request_all:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your cards ({total_card_quantity} cards)')
+                elif affiliation_codes and rarity_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {self.card_rarity_name_dict[rarity_codes].lower()} {affiliation_codes} cards ({total_card_quantity} cards)')
+                elif affiliation_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {affiliation_codes} cards ({total_card_quantity} cards)')
+                elif rarity_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {rarity_codes} cards ({total_card_quantity} cards)')
+                elif card_codes:
+                    msg = await user.send('{} is requesting card(s): {}'.format(ctx.author.display_name, helper.join_with_and('{} ({}{})'.format(
+                        card['name'], 
+                        '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                        card['code']) for card in cards_records)))
+                for emoji in trade_emojis:
+                    await msg.add_reaction(emoji)
+
+                def check(r, u):
+                    # R = Reaction, U = User
+                    return u == user and str(
+                        r.emoji) in trade_emojis and r.message.channel == user.dm_channel and r.message.id == msg.id
+
+                try:
+                    reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
+                except asyncio.TimeoutError:
+                    await ctx.send(f'Trade has timed out between {ctx.author.display_name} and {user.display_name}.')
+                    return 'Timeout'
+                return str(reaction.emoji)
+            user_input = await request_card_helper()
+            # Accept
+            if user_input == trade_emojis[0]:
+                cards_records = await fetch_cards_records()
+
+                total_cards_sent = 0
+                for card in cards_records:
+                    quantity = card['count']
+                    if card_codes:
+                        quantity = card_codes.count(card['code'])
+                    await self.change_user_item_quantity(user.id, 'deck', 'card', card['code'], -1*quantity)
+                    await self.change_user_item_quantity(ctx.author.id, 'deck', 'card', card['code'], quantity)
+                    total_cards_sent += quantity
+
+                if card_codes:
+                    await ctx.send('{} has traded {} to {}!'.format(user.mention, helper.join_with_and('{} ({}{})'.format(
+                        card['name'], 
+                        '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                        card['code']) for card in cards_records), ctx.author.mention))
                 else:
-                    trade_emojis = ['✅', '🚫']
-
-                    async def trade_card_helper() -> str:
-
-                        msg = await user.send(f'{ctx.author.display_name} is requesting card: {card_name}')
-                        for emoji in trade_emojis:
-                            await msg.add_reaction(emoji)
-
-                        def check(r, u):
-                            # R = Reaction, U = User
-                            return u == user and str(
-                                r.emoji) in trade_emojis and r.message.channel == user.dm_channel and r.message.id == msg.id
-
-                        try:
-                            reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
-                        except asyncio.TimeoutError:
-                            await ctx.send(f'Trade has timed out between {ctx.author.display_name} and {user.display_name}.')
-                            return 'Timeout'
-                        return str(reaction.emoji)
-                    user_input = await trade_card_helper()
-                    # Accept
-                    if user_input == trade_emojis[0]:
-                        card_quantity = await connection.fetchval(
-                            """SELECT count FROM gray.user_deck WHERE discord_uid = $1 AND code = $2""",
-                            user.id, request_card_code)
-                        if card_quantity > 0:
-                            await self.change_user_item_quantity(ctx.author.id, 'deck', 'card', request_card_code, 1)
-                            await self.change_user_item_quantity(user.id, 'deck', 'card', request_card_code, -1)
-                            await ctx.send(f'{user.mention} has traded {card_name} to {ctx.author.mention}!')
+                    await ctx.send(f'{user.mention} has traded {total_cards_sent} cards to {ctx.author.mention}!')
+            else:
+                await ctx.send(f'{user.mention} has rejected the request.')
 
     @commands.command(aliases=['send_cards'])
     async def send_card(self, ctx, *args):
