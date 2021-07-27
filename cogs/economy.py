@@ -197,15 +197,14 @@ class Economy(commands.Cog):
 
         card_codes, card_names = await get_cards(base_string, rarity, quantity)
 
-        # Check if got enough cards
-        while len(card_codes) != quantity:
-            # If exhausted pool
-            if rarity == 'S':
-                for remaining in range(0, quantity - len(card_codes)):
-                    card_codes.extend([random.choice(card_codes)])
-                break
-            rarity = self.card_rarity_list[self.card_rarity_list.index(rarity) - 1]
-            card_codes.extend(await get_cards(base_string, rarity, quantity - len(card_codes)))
+        # If not enough cards, try all the rarity from S to L until we have enough cards
+        if len(card_codes) != quantity:
+            for new_rarity in self.card_rarity_list:
+                new_card_codes, new_card_names = await get_cards(base_string, new_rarity, quantity - len(card_codes))
+                card_codes.extend(new_card_codes)
+                card_names.extend(new_card_names)
+                if len(card_codes) == quantity:
+                    break;
 
         return card_codes, card_names
 
