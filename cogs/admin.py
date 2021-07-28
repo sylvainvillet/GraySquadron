@@ -197,6 +197,7 @@ class Admin(commands.Cog):
             await member.edit(nick=after_nick)
 
     @commands.command()
+    @commands.has_role('Active')
     @commands.has_any_role('Droid Engineer', 'Commander', 'Captain', 'Lieutenant', 'Flight Officer')
     async def claim(self, ctx, new_fo: int):
         """Claim a FO #"""
@@ -233,6 +234,9 @@ class Admin(commands.Cog):
             await ctx.send('Please include requested FO number after command.')
         elif isinstance(error, commands.MissingAnyRole):
             await ctx.send('You must be FO or higher rank to claim a number!')
+        elif isinstance(error, commands.MissingRole):
+            await ctx.send('You must have Active role to claim a number!\n'
+                'Maintain activity through text or voice channels.')
         else:
             print(error)
 
