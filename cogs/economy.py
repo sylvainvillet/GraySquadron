@@ -1740,9 +1740,16 @@ class Deck:
         self.set_list = sorted(list(self.db_select_dict.keys()))
         self.current_set_code = self.set_list[self.current_set_idx]
         self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
-        self.sent_embed = await self.ctx.send(embed=await self.generate_deck_embed())
-        for e in Deck.deck_action_emoji_list:
-            await self.sent_embed.add_reaction(e)
+
+        # If there's only one card to show, show directly the card embed without reactions
+        self.get_current_deck_info()
+        if len(self.user_deck_dict.keys()) == 1:
+            self.is_card = 1
+            self.sent_embed = await self.ctx.send(embed=await self.generate_card_embed())
+        else:
+            self.sent_embed = await self.ctx.send(embed=await self.generate_deck_embed())
+            for e in Deck.deck_action_emoji_list:
+                await self.sent_embed.add_reaction(e)
 
     def get_current_deck_info(self):
         keys = self.current_set_dict.keys()
@@ -1757,7 +1764,6 @@ class Deck:
 
     async def generate_deck_embed(self) -> discord.Embed:
         """Generate embed that shows entire deck by set"""
-        self.get_current_deck_info()
         current_i_display_names = self.current_display_names[:]
         current_i_display_names[self.current_card_idx] = f' ▶ {self.current_display_names[self.current_card_idx]}'
         for idx, name in enumerate(current_i_display_names):
@@ -1953,7 +1959,7 @@ class Deck:
             await self.open()
             await self.close_out()
         else:
-            await self.ctx.send('You have no cards.')
+            await self.ctx.send('No cards found.')
 
 
 class EconomyLB(menus.ListPageSource):
