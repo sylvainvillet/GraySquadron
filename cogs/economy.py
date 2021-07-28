@@ -1767,7 +1767,10 @@ class Deck:
         current_i_display_names = self.current_display_names[:]
         current_i_display_names[self.current_card_idx] = f' ▶ {self.current_display_names[self.current_card_idx]}'
         for idx, name in enumerate(current_i_display_names):
-            current_i_display_names[idx] = f'{current_i_display_names[idx]} x{self.current_card_counts[idx]}'
+            if self.current_card_counts[idx] > 1:
+                current_i_display_names[idx] = f'{current_i_display_names[idx]} ({self.current_card_counts[idx]}x {self.current_display_code[idx]})'
+            else:
+                current_i_display_names[idx] = f'{current_i_display_names[idx]} ({self.current_display_code[idx]})'
         card_names_string = '\n'.join(current_i_display_names)
 
         embed = discord.Embed(title='Set', description=self.current_set_name, colour=self.ctx.author.colour)
