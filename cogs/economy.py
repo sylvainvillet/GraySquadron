@@ -1280,6 +1280,36 @@ class Economy(commands.Cog):
                     else:
                         await ctx.send(f'{ctx.author.mention} has sent {total_cards_sent} cards to {user.mention}!')
 
+    @commands.command(aliases=['who_has'])
+    async def who_has_card(self, ctx, card_code: str):
+        """List the members who have the specified card in their deck.
+
+        Usage:
+        $who_has_card card_code
+        Ex: $who_has_card 01001"""
+        if not helper.is_valid_card_number_format(card_code):
+            await ctx.send('Invalid argument. You must specify a card number.\nType "$help who_has_card" for more info.')
+            return
+
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                uid_count_record = await connection.fetch(
+                    """SELECT discord_uid, count FROM gray.user_deck
+                    WHERE code = $1 AND count > 0""",
+                    card_code)
+
+                if not uid_count_record:
+                    await ctx.send('Nobody has the card you\'re looking for.')
+                else:
+                    user_quantity_strings = []
+                    for entry in uid_count_record:
+                        member = await ctx.guild.fetch_member(entry['discord_uid'])
+                        user_quantity_strings.append('{} ({}x)'.format(member, entry['count']))
+                    if len(user_quantity_strings) == 1:
+                        await ctx.send('{} has the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
+                    else:
+                        await ctx.send('{} have the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
+
     # Background Tasks
     @tasks.loop(seconds=600, reconnect=True)
     async def game_role(self):
