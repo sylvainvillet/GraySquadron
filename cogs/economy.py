@@ -485,8 +485,22 @@ class Economy(commands.Cog):
 
     @commands.command()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
-    async def duel(self, ctx, opponent: discord.Member, wager: int):
-        """Duel a specific user for x credits"""
+    async def duel(self, ctx, opponent: discord.Member, amount: str):
+        """Duel a specific user for x credits
+        Usage:
+        $duel @user amount
+
+        Example:
+        $duel @user 500
+        $duel @user 10k
+        $duel @user 1.2M"""
+        wager = 0
+        try:
+            wager = helper.parse_amount(amount)
+        except ValueError:
+            await ctx.send('Invalid argument: {}\nType "$help duel" for more info.'.format(amount))
+            return
+
         if ctx.author.id == opponent.id:
             await ctx.send('You cannot duel yourself.')
             return
