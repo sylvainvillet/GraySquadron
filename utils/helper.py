@@ -161,3 +161,27 @@ def parse_amount(amount: str) -> int:
         return int(amount)
     else:
         return int(float(amount[:len(amount)-1])*10**exp)
+
+def credits_to_string(amount: int) -> str:
+    letter = ''
+    divider = 1
+    absAmount = abs(amount)
+    if absAmount >= 10**15:
+        letter = 'Q'
+        divider = 10**15
+    elif absAmount >= 10**12:
+        letter = 'T'
+        divider = 10**12
+    elif absAmount >= 10**9:
+        letter = 'B'
+        divider = 10**9
+    elif absAmount >= 10**6:
+        letter = 'M'
+        divider = 10**6
+        
+    if divider == 1:
+        return '{:,} C'.format(int(amount))
+    if amount >= 10**18:
+        return '{:,} {}C'.format(int(amount / divider), letter)
+    else:
+        return '{:.3g} {}C'.format(amount / divider, letter)

@@ -361,15 +361,15 @@ class Economy(commands.Cog):
                 if cd:
                     header_state = 'now'
                     prize = random.randint(1, 5) * lotto_type[4] * self.credit_msg_reward
-                    result_string += f'\n{display_name} won {prize:,.0f} credits from their {lotto_type[3]}!'
+                    result_string += f'\n{display_name} won {helper.credits_to_string(prize)} from their {lotto_type[3]}!'
                     prize_total += prize
                     await self.set_cd(discord_uid, lotto_type[0], lotto_type[1], lotto_type[2])
                 else:
                     cd_string += f"\n{lotto_type[3]}: {str(time_left).split('.')[0]}"
             await self.change_credits(discord_uid, prize_total - 1)
             await self.change_credits(self.bot_discord_uid, 1)
-            header_string = f'{ctx.author.mention} {header_state} has {credits_total + prize_total - self.lotto_cost:,.0f} credits!'
-            footer_string = f'Lotto cost: {self.lotto_cost} C'
+            header_string = f'{ctx.author.mention} {header_state} has {helper.credits_to_string(credits_total + prize_total - self.lotto_cost)}!'
+            footer_string = f'Lotto cost: {helper.credits_to_string(self.lotto_cost)}'
 
             embed = discord.Embed(title="Lotto Results", description=header_string, colour=ctx.author.colour)
             embed.set_thumbnail(
@@ -439,10 +439,10 @@ class Economy(commands.Cog):
                     _, _, tax_rate = self.credits_tier(giver_total)
                     give_count = math.ceil(count * (1 - tax_rate)) - 5
                     tax_count = count - give_count
-                    message = f'{ctx.author.mention} have gifted {member.mention} {count:,} credits! '
+                    message = f'{ctx.author.mention} have gifted {member.mention} {helper.credits_to_string(count)}! '
                     if reason is not None:
                         message += f'\nMemo: {reason}'
-                    message += f'\n{tax_count:,} credits were withheld for handling fees.'
+                    message += f'\n{helper.credits_to_string(tax_count)} were withheld for handling fees.'
                     await ctx.send(message)
                     await self.change_credits(giver, -1 * count)
                     await self.change_credits(taker, give_count)
@@ -493,9 +493,9 @@ class Economy(commands.Cog):
         one_credits_total = await self.get_credits(ctx.author.id)
         two_credits_total = await self.get_credits(opponent.id)
         if one_credits_total < wager:
-            await ctx.send(f'{ctx.author.mention} only has {one_credits_total} credits.')
+            await ctx.send(f'{ctx.author.mention} only has {helper.credits_to_string(one_credits_total)}.')
         elif two_credits_total < wager:
-            await ctx.send(f'{opponent.mention} only has {two_credits_total} credits.')
+            await ctx.send(f'{opponent.mention} only has {helper.credits_to_string(two_credits_total)}.')
         else:
             emoji_list = [helper.get_config('blaster_emoji'), 
                           helper.get_config('saber_green_emoji'),
@@ -503,7 +503,7 @@ class Economy(commands.Cog):
                           '🏃']
 
             async def duel_helper(one: discord.Member, two: discord.Member, emojis, b_count):
-                msg = await one.send(f'Dueling against {two.display_name} for {b_count} credits!'
+                msg = await one.send(f'Dueling against {two.display_name} for {helper.credits_to_string(b_count)}!'
                                      f'\nPlease select one of the below emojis!'
                                      f'\n(Response is final, you cannot change after submission.)'
                                      f'\nBlaster < Saber < Force < Blaster'
@@ -610,18 +610,18 @@ class Economy(commands.Cog):
                     print('This is not in the result matrix.')
                 await self.change_credits(self.bot_discord_uid, (2 * tax))
                 coin_string1 = f'{one_name}\n{two_name}'
-                coin_string2 = f'{one_credits_total:,} > {one_credits_total - wager:,} -> {await self.get_credits(ctx.author.id):,} C' \
-                               f'\n{two_credits_total:,} > {two_credits_total - wager:,} -> {await self.get_credits(opponent.id):,} C'
+                coin_string2 = f'{helper.credits_to_string(one_credits_total)} > {helper.credits_to_string(one_credits_total - wager)} -> {helper.credits_to_string(await self.get_credits(ctx.author.id))}' \
+                               f'\n{helper.credits_to_string(two_credits_total)} > {helper.credits_to_string(two_credits_total - wager)} -> {helper.credits_to_string(await self.get_credits(opponent.id))}'
             embed = discord.Embed(title="Duel Results", description=result_string, colour=em_color)
             embed.set_thumbnail(url=em_avatar)
             embed.add_field(name='Aggressor', value=f'{ctx.author.mention}', inline=True)
             embed.add_field(name='~V.S~', value=f'{one_r}v{two_r}', inline=True)
             embed.add_field(name='Defender', value=f'{opponent.mention}', inline=True)
             if not str(result)[-1] == '9' and not str(result)[:1] == '0':
-                embed.add_field(name='__Prize__', value=f'{2 * prize:,} C', inline=False)
+                embed.add_field(name='__Prize__', value=f'{helper.credits_to_string(2 * prize)}', inline=False)
                 embed.add_field(name='__Name__', value=coin_string1, inline=True)
                 embed.add_field(name='__Change__', value=coin_string2, inline=True)
-            embed.set_footer(text=f'Cleaner Fee: {2 * tax} C')
+            embed.set_footer(text=f'Cleaner Fee: {helper.credits_to_string(2 * tax)}')
             await ctx.send(embed=embed)
 
     @duel.error
@@ -1037,7 +1037,7 @@ class Economy(commands.Cog):
                 embed.set_author(name=user.display_name, icon_url=user.avatar_url)
                 embed.add_field(name='Total cards', value=total_cards)
                 embed.add_field(name='Completion', value='{}/{}'.format(unique_cards, self.card_count))
-                embed.add_field(name='Value', value=f'{deck_value:,}', inline=False)
+                embed.add_field(name='Value', value=f'{helper.credits_to_string(deck_value)}', inline=False)
                 embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
                                                            'Neutrals: {} ({}/{})\n'
                                                            'Villains: {} ({}/{})\n'
@@ -1645,7 +1645,7 @@ class SlotMachine:
                 sith_penalty = math.floor(self.player_credits_total*.1) if self.selected_machine_name == 'SITH REVENGE' else 0
                 await self.add_jackpot(self.selected_machine_name, int((self.epic_fail + sith_penalty) / 100))
                 await casino_channel.send(
-                    f'{sid}{sid} {self.author.mention} LOST TO THE HIGHGROUND! -{self.epic_fail*self.multi + sith_penalty:,} Credits! {sid}{sid}')
+                    f'{sid}{sid} {self.author.mention} LOST TO THE HIGHGROUND! -{helper.credits_to_string(self.epic_fail*self.multi + sith_penalty)}! {sid}{sid}')
             # GRAY
             elif epic > 0 and self.win_bool:
                 await self.cash_out(self.current_jackpot[epic - 1], 0, epic)
@@ -1653,9 +1653,9 @@ class SlotMachine:
                 self.player_credits_total += self.current_jackpot[epic - 1]
                 if epic == 3:
                     await casino_channel.send(
-                        f'💰💰 @here {self.author.mention} WON THE JACKPOT OF {self.current_jackpot[epic - 1]:,}! 💰💰')
+                        f'💰💰 @here {self.author.mention} WON THE JACKPOT OF {helper.credits_to_string(self.current_jackpot[epic - 1])}! 💰💰')
                 elif epic == 2:
-                    await self.ctx.send(f'You won the minor jackpot of {self.current_jackpot[epic-1]:,}!', delete_after=600)
+                    await self.ctx.send(f'You won the minor jackpot of {helper.credits_to_string(self.current_jackpot[epic-1])}!', delete_after=600)
 
     async def slot_reaction_waiter(self) -> str:
         """Async helper to await for reactions"""
@@ -1683,21 +1683,21 @@ class SlotMachine:
         result_string = f'-- {slot_state} --'
         embed = discord.Embed(title=f'**LVL {self.machine_level} {self.selected_machine_name} x{self.multi}**',
                               description=f'EXP: {self.machine_exp} / {self.next_exp:.0f}'
-                                          f'\nMajor Jackpot: {self.current_jackpot[2]:,}'
-                                          f'\nMinor Jackpot: {self.current_jackpot[1]:,}'
-                                          f'\nBonus: {self.current_jackpot[0]:,}',
+                                          f'\nMajor Jackpot: {helper.credits_to_string(self.current_jackpot[2])}'
+                                          f'\nMinor Jackpot: {helper.credits_to_string(self.current_jackpot[1])}'
+                                          f'\nBonus: {helper.credits_to_string(self.current_jackpot[0])}',
                               color=slot_color)
         embed.set_author(name=self.author.display_name, icon_url=self.author.avatar_url)
         embed.set_thumbnail(url=self.selected_machine_icon)
         embed.add_field(name='------------------', value=slot_string, inline=False)
         embed.add_field(name='------------------', value=result_string, inline=False)
-        embed.add_field(name='Profit', value=str(self.profit), inline=True)
+        embed.add_field(name='Profit', value=f'{helper.credits_to_string(self.profit)}', inline=True)
         embed.add_field(name='Multi', value=porg_string, inline=True)
         embed.add_field(name='CardBonus', value=f'x{1+self.bonus/100:.2f}', inline=True)
         embed.add_field(name='Spins', value=str(self.spins_left), inline=True)
-        embed.add_field(name='Wallet', value=f'{self.player_credits_total:,} C', inline=True)
+        embed.add_field(name='Wallet', value=f'{helper.credits_to_string(self.player_credits_total)}', inline=True)
         embed.set_footer(
-            text=f'Play Cost: {self.selected_machine_cost*self.multi:,}\nConfused? $slot_info\nTime: %s'
+            text=f'Play Cost: {helper.credits_to_string(self.selected_machine_cost*self.multi)}\nConfused? $slot_info\nTime: %s'
                  % datetime.datetime.now().strftime('%Y-%b-%d %H:%M:%S'))
         return embed
 
@@ -1944,7 +1944,7 @@ class Shop:
             elif item_name == 'Random Affiliation':
                 item_name = item_name.replace('Affiliation', self.economy.current_affiliation)
             item_name_list.append(f"{item_dict.get('emoji')} {item_quantity:,}x{item_name}")
-            item_cost_list.append(f"{item_dict.get('cost'):,}")
+            item_cost_list.append(f"{helper.credits_to_string(item_dict.get('cost'))}")
             item_code_list.append(f"{item_dict.get('item_code')}")
         embed.add_field(name='Item', value='\n'.join(item_name_list))
         embed.add_field(name='Cost', value='\n'.join(item_cost_list))
@@ -2332,7 +2332,7 @@ class EconomyLB(menus.ListPageSource):
         if fields is None:
             fields = []
         len_data = len(self.entries)
-        embed = discord.Embed(title="Leaderboard", description="Galactic Points", colour=self.ctx.author.colour)
+        embed = discord.Embed(title="Leaderboard", description="Galactic Credits", colour=self.ctx.author.colour)
         embed.set_thumbnail(url='https://media.discordapp.net/attachments/800431166997790790/840009740855934996/gray_squadron_logo.png')
         embed.set_footer(text=f"{offset:,} - {min(len_data, offset+self.per_page-1):,} of {len_data:,}.")
         for name, value in fields:
@@ -2352,7 +2352,7 @@ class EconomyLB(menus.ListPageSource):
 
         offset = (menu.current_page * self.per_page) + 1
         fields = []
-        table = "\n".join(f"{get_rank(idx+offset)}. {self.ctx.guild.get_member(entry[0]).display_name} - {entry[1]:,} Points" for idx, entry in enumerate(entries))
+        table = "\n".join(f"{get_rank(idx+offset)}. {self.ctx.guild.get_member(entry[0]).display_name} - {helper.credits_to_string(entry[1])}" for idx, entry in enumerate(entries))
         fields.append(("Rank", table))
         return await self.write_page(offset, fields)
 
