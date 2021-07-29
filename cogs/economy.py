@@ -477,7 +477,8 @@ class Economy(commands.Cog):
                 'SELECT DISTINCT rarity_code FROM gray.sw_card_db ORDER BY 1'
                ) AS ct (discord_uid bigint, "C" int, "L" int, "R" int, "S" int, "U" int) 
    
-                RIGHT JOIN gray.rpginfo AS rpginfo on ct.discord_uid = rpginfo.discord_uid ORDER BY "TOTAL" DESC;""")
+                RIGHT JOIN gray.rpginfo AS rpginfo on ct.discord_uid = rpginfo.discord_uid 
+                WHERE rpginfo.discord_uid <> $1 ORDER BY "TOTAL" DESC;""", self.bot_discord_uid)
         menu = menus.MenuPages(source=EconomyLB(ctx, value_lb), clear_reactions_after=True)
         await menu.start(ctx)
         await ctx.message.delete()
@@ -2339,9 +2340,19 @@ class EconomyLB(menus.ListPageSource):
         return embed
 
     async def format_page(self, menu, entries):
+        def get_rank(idx: int) -> str:
+            if idx == 1:
+                return '🥇'
+            elif idx == 2:
+                return '🥈'
+            elif idx == 3:
+                return '🥉'
+            else:
+                return '{}'.format(idx)
+
         offset = (menu.current_page * self.per_page) + 1
         fields = []
-        table = "\n".join(f"{idx+offset}. {self.ctx.guild.get_member(entry[0]).display_name} - {entry[1]:,} Points" for idx, entry in enumerate(entries))
+        table = "\n".join(f"{get_rank(idx+offset)}. {self.ctx.guild.get_member(entry[0]).display_name} - {entry[1]:,} Points" for idx, entry in enumerate(entries))
         fields.append(("Rank", table))
         return await self.write_page(offset, fields)
 
