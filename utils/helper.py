@@ -141,3 +141,23 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
         raise ValueError('Invalid arguments. Use either \"all\" or affiliation/rarity name but not both.')
 
     return user, has_all, affiliation_codes, rarity_codes, card_codes
+
+def parse_amount(amount: str) -> int:
+    """Parses the amount that can be either and integer, or something like "10k", "1.2M", etc..."""
+    amountLowerCase = amount.lower()
+    exp = 0
+    if amountLowerCase.endswith('k'):
+        exp = 3
+    elif amountLowerCase.endswith('m'):
+        exp = 6
+    elif amountLowerCase.endswith('b'):
+        exp = 9
+    elif amountLowerCase.endswith('t'):
+        exp = 12
+    elif amountLowerCase.endswith('q'):
+        exp = 15
+
+    if exp == 0:
+        return int(amount)
+    else:
+        return int(float(amount[:len(amount)-1])*10**exp)

@@ -394,20 +394,33 @@ class Economy(commands.Cog):
 
     @commands.command()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
-    async def transfer(self, ctx, member: discord.Member, count: int, *, reason: str = 'None'):
-        """Transfer credits to another user"""
+    async def transfer(self, ctx, member: discord.Member, amount: str, *, reason: str = None):
+        """Transfer credits to another user.
+        Examples: 
+        $transfer @user 500 thank you for gravy
+        $transfer @user 10k
+        $transfer @user 1.2M"""
         giver = ctx.author.id
         taker = member.id
         giver_total = await self.get_credits(giver)
+        count = 0
+        try:
+            count = helper.parse_amount(amount)
+        except ValueError:
+            await ctx.send('Invalid argument: {}\nType "$help transfer" for more info.'.format(amount))
+            return
+
         if giver_total > 0:
             if count > 5:
                 if count <= giver_total:
                     _, _, tax_rate = self.credits_tier(giver_total)
                     give_count = math.ceil(count * (1 - tax_rate)) - 5
                     tax_count = count - give_count
-                    await ctx.send(f'{ctx.author.mention} have gifted {member.mention} {count} credits! '
-                                   f'\nMemo: {reason}'
-                                   f'\n{tax_count} credits were withheld for handling fees.')
+                    message = f'{ctx.author.mention} have gifted {member.mention} {count:,} credits! '
+                    if reason is not None:
+                        message += f'\nMemo: {reason}'
+                    message += f'\n{tax_count:,} credits were withheld for handling fees.'
+                    await ctx.send(message)
                     await self.change_credits(giver, -1 * count)
                     await self.change_credits(taker, give_count)
                     await self.change_credits(self.bot_discord_uid, tax_count)
