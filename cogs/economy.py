@@ -130,6 +130,22 @@ class Economy(commands.Cog):
                                          discord_uid,
                                          round(credit_change))
 
+    async def get_deck_value(self, discord_uid: int) -> int:
+        """Get the total value of all the cards of specified discord user"""
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                cards_rarity_count_record = await connection.fetch(
+                    """SELECT cards_db.rarity_code, SUM(deck.count) AS count FROM gray.user_deck AS deck 
+                    INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                    WHERE deck.discord_uid = $1 AND deck.count > 0 GROUP BY cards_db.rarity_code""",
+                    discord_uid)
+
+                deck_value = 0
+                for rarity in cards_rarity_count_record:
+                    deck_value += self.card_rarity_value[rarity['rarity_code']] * rarity['count']
+
+                return deck_value
+
     async def get_item_cost_quantity(self, discord_uid: int, item_code: str) -> (int, int, int):
         """Function to get cost of item"""
         async with self.client.pool.acquire() as connection:
@@ -369,18 +385,25 @@ class Economy(commands.Cog):
             await ctx.send(f'Sorry, a credit lotto combo-pack costs {self.lotto_cost} C.', delete_after=15)
 
     @commands.command()
-    async def bal(self, ctx):
+    async def bal(self, ctx, user: discord.Member = None):
         """Displays users credit balance"""
-        discord_uid = ctx.author.id
+        if user is None:
+            user = ctx.author
+        discord_uid = user.id
         credit_total = await self.get_credits(discord_uid)
         img_link, bracket, tax_rate = self.credits_tier(credit_total)
         tax_bracket_string = f'{bracket[:-1].capitalize()} {bracket[-1]}'
-        header_string = f'\nBalance: {credit_total:,}'
-        embed = discord.Embed(title=f"{tax_bracket_string} Wallet", description=header_string, colour=ctx.author.colour)
-        embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar_url)
+        deck_value = await self.get_deck_value(discord_uid)
+
+        # Build embed
+        embed = discord.Embed(title=f"{tax_bracket_string} Wallet", colour=ctx.author.colour)
+        embed.set_author(name=user.display_name, icon_url=user.avatar_url)
         embed.set_thumbnail(url=img_link)
+        embed.add_field(name='Wallet', value=f'{credit_total:,} C'
+                        f'\nTax Rate: {tax_rate * 100:.1f}%', inline=False)
+        embed.add_field(name='Deck value', value=f'{deck_value:,} C', inline=False)
+        embed.add_field(name='Total', value=f'{(deck_value + credit_total):,} C', inline=False)
         # TODO: Stats on wallet growth
-        embed.set_footer(text=f'Tax Rate: {tax_rate * 100:.1f}%')
         await ctx.send(embed=embed)
 
     @commands.command()
