@@ -2,3 +2,4 @@
 /venv/
 config.json
 /DEV/logging_example.py
+*.pyc

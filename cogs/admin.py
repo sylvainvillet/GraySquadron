@@ -37,7 +37,7 @@ class Admin(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload):
         message = payload.cached_message
-        if message.channel.name != 'bot-logs' and not message.content.startswith('$') and message.author.id != 775808657199333376:
+        if message.channel.name != 'bot-logs' and not message.content.startswith('$') and message.author.id != helper.get_config('bot_discord_uid'):
             em = discord.Embed(title='Message Deletion:', colour=0xff0000)
             em.add_field(name='Author', value='{0}'.format(message.author), inline=False)
             em.add_field(name='Channel', value='{0}'.format(message.channel), inline=False)

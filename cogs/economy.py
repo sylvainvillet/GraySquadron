@@ -23,14 +23,26 @@ class Economy(commands.Cog):
         self.credit_msg_reward = 100
         self.lotto_cost = 5
 
+        self.bot_discord_uid = helper.get_config('bot_discord_uid')
+
         # SW Card DB
         self.affiliation_list = ['Villain', 'Neutral', 'Hero']
+        self.affiliation_codes_list = ['villain', 'neutral', 'hero']
         self.faction_list = ['Command', 'Force', 'Rogue', 'General']
         self.set_list = ['Legacies', 'Redemption', 'Spirit of Rebellion']
         self.card_rate_list = [0.45, 0.4, 0.14, 0.0099, 0.0001]
         self.item_code_card_rarity_dict = {'cp1': 'S', 'cp2': 'C', 'cp3': 'U', 'cp4': 'R', 'cp5': 'L'}
+        self.item_code_card_rarity_name_dict = {'cp1': 'Starter', 'cp2': 'Common', 'cp3': 'Uncommon', 'cp4': 'Rare', 'cp5': 'Legendary'}
         self.card_rarity_list = ['S', 'C', 'U', 'R', 'L']
+        self.card_rarity_name_dict = {'S': 'Starter', 'C': 'Common', 'U': 'Uncommon', 'R': 'Rare', 'L': 'Legendary'}
+        self.card_rarity_value = {'S': 4000, 'C': 15000, 'U': 80000, 'R': 400000, 'L': 5000000}
         self.card_pack_type_dict = {'cpa': 'affiliation_name', 'cpf': 'faction_name', 'cps': 'set_name'}
+
+        # Hardcoded stats about the card's deck to avoid unneeded SQL requests. To update if new cards are added
+        self.card_count = 1889
+        self.card_affiliation_count = {'hero': 615, 'neutral': 663, 'villain': 611}
+        self.card_rarity_count = {'S': 449, 'C': 513, 'U': 387, 'R': 387, 'L': 153}
+        
         self.current_affiliation = random.choice(self.affiliation_list)
         self.current_faction = random.choice(self.faction_list)
         self.current_set = random.choice(self.set_list)
@@ -118,6 +130,22 @@ class Economy(commands.Cog):
                                          discord_uid,
                                          round(credit_change))
 
+    async def get_deck_value(self, discord_uid: int) -> int:
+        """Get the total value of all the cards of specified discord user"""
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                cards_rarity_count_record = await connection.fetch(
+                    """SELECT cards_db.rarity_code, SUM(deck.count) AS count FROM gray.user_deck AS deck 
+                    INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                    WHERE deck.discord_uid = $1 AND deck.count > 0 GROUP BY cards_db.rarity_code""",
+                    discord_uid)
+
+                deck_value = 0
+                for rarity in cards_rarity_count_record:
+                    deck_value += self.card_rarity_value[rarity['rarity_code']] * rarity['count']
+
+                return deck_value
+
     async def get_item_cost_quantity(self, discord_uid: int, item_code: str) -> (int, int, int):
         """Function to get cost of item"""
         async with self.client.pool.acquire() as connection:
@@ -196,15 +224,14 @@ class Economy(commands.Cog):
 
         card_codes, card_names = await get_cards(base_string, rarity, quantity)
 
-        # Check if got enough cards
-        while len(card_codes) != quantity:
-            # If exhausted pool
-            if rarity == 'S':
-                for remaining in range(0, quantity - len(card_codes)):
-                    card_codes.extend([random.choice(card_codes)])
-                break
-            rarity = self.card_rarity_list[self.card_rarity_list.index(rarity) - 1]
-            card_codes.extend(await get_cards(base_string, rarity, quantity - len(card_codes)))
+        # If not enough cards, try all the rarity from S to L until we have enough cards
+        if len(card_codes) != quantity:
+            for new_rarity in self.card_rarity_list:
+                new_card_codes, new_card_names = await get_cards(base_string, new_rarity, quantity - len(card_codes))
+                card_codes.extend(new_card_codes)
+                card_names.extend(new_card_names)
+                if len(card_codes) == quantity:
+                    break;
 
         return card_codes, card_names
 
@@ -287,15 +314,15 @@ class Economy(commands.Cog):
         """Trigger word triggered"""
         discord_uid = message.author.id
         # if discord_uid == 195747311136145409:
-        if discord_uid != 775808657199333376:
+        if discord_uid != self.bot_discord_uid:
             if 'HOPE' in message.content.upper().replace(' ', ''):
                 cd, _ = await self.check_cd(discord_uid, 'HOPE')
                 if cd:
-                    await message.add_reaction('<:rebel:761887570656231434>')
+                    await message.add_reaction(helper.get_config('rebel_emoji'))
                     await self.change_credits(discord_uid, self.credit_msg_reward)
                     await self.set_cd(discord_uid, 'HOPE', 'MI', 30)
             if 'VAPOR' in message.content.upper().replace(' ', ''):
-                await message.add_reaction('<:SidSmile:768524163505061918>')
+                await message.add_reaction(helper.get_config('sid_smile_emoji'))
 
     # Commands
     @commands.command()
@@ -334,15 +361,15 @@ class Economy(commands.Cog):
                 if cd:
                     header_state = 'now'
                     prize = random.randint(1, 5) * lotto_type[4] * self.credit_msg_reward
-                    result_string += f'\n{display_name} won {prize:,.0f} credits from their {lotto_type[3]}!'
+                    result_string += f'\n{display_name} won {helper.credits_to_string(prize)} from their {lotto_type[3]}!'
                     prize_total += prize
                     await self.set_cd(discord_uid, lotto_type[0], lotto_type[1], lotto_type[2])
                 else:
                     cd_string += f"\n{lotto_type[3]}: {str(time_left).split('.')[0]}"
             await self.change_credits(discord_uid, prize_total - 1)
-            await self.change_credits(775808657199333376, 1)
-            header_string = f'{ctx.author.mention} {header_state} has {credits_total + prize_total - self.lotto_cost:,.0f} credits!'
-            footer_string = f'Lotto cost: {self.lotto_cost} C'
+            await self.change_credits(self.bot_discord_uid, 1)
+            header_string = f'{ctx.author.mention} {header_state} has {helper.credits_to_string(credits_total + prize_total - self.lotto_cost)}!'
+            footer_string = f'Lotto cost: {helper.credits_to_string(self.lotto_cost)}'
 
             embed = discord.Embed(title="Lotto Results", description=header_string, colour=ctx.author.colour)
             embed.set_thumbnail(
@@ -358,18 +385,25 @@ class Economy(commands.Cog):
             await ctx.send(f'Sorry, a credit lotto combo-pack costs {self.lotto_cost} C.', delete_after=15)
 
     @commands.command()
-    async def bal(self, ctx):
+    async def bal(self, ctx, user: discord.Member = None):
         """Displays users credit balance"""
-        discord_uid = ctx.author.id
+        if user is None:
+            user = ctx.author
+        discord_uid = user.id
         credit_total = await self.get_credits(discord_uid)
         img_link, bracket, tax_rate = self.credits_tier(credit_total)
         tax_bracket_string = f'{bracket[:-1].capitalize()} {bracket[-1]}'
-        header_string = f'\nBalance: {credit_total:,}'
-        embed = discord.Embed(title=f"{tax_bracket_string} Wallet", description=header_string, colour=ctx.author.colour)
-        embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar_url)
+        deck_value = await self.get_deck_value(discord_uid)
+
+        # Build embed
+        embed = discord.Embed(title=f"{tax_bracket_string} Wallet", colour=ctx.author.colour)
+        embed.set_author(name=user.display_name, icon_url=user.avatar_url)
         embed.set_thumbnail(url=img_link)
+        embed.add_field(name='Wallet', value=f'{credit_total:,} C'
+                        f'\nTax Rate: {tax_rate * 100:.1f}%', inline=False)
+        embed.add_field(name='Deck value', value=f'{deck_value:,} C', inline=False)
+        embed.add_field(name='Total', value=f'{(deck_value + credit_total):,} C', inline=False)
         # TODO: Stats on wallet growth
-        embed.set_footer(text=f'Tax Rate: {tax_rate * 100:.1f}%')
         await ctx.send(embed=embed)
 
     @commands.command()
@@ -383,23 +417,36 @@ class Economy(commands.Cog):
 
     @commands.command()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
-    async def transfer(self, ctx, member: discord.Member, count: int, *, reason: str = 'None'):
-        """Transfer credits to another user"""
+    async def transfer(self, ctx, member: discord.Member, amount: str, *, reason: str = None):
+        """Transfer credits to another user.
+        Examples: 
+        $transfer @user 500 thank you for gravy
+        $transfer @user 10k
+        $transfer @user 1.2M"""
         giver = ctx.author.id
         taker = member.id
         giver_total = await self.get_credits(giver)
+        count = 0
+        try:
+            count = helper.parse_amount(amount)
+        except ValueError:
+            await ctx.send('Invalid argument: {}\nType "$help transfer" for more info.'.format(amount))
+            return
+
         if giver_total > 0:
             if count > 5:
                 if count <= giver_total:
                     _, _, tax_rate = self.credits_tier(giver_total)
                     give_count = math.ceil(count * (1 - tax_rate)) - 5
                     tax_count = count - give_count
-                    await ctx.send(f'{ctx.author.mention} have gifted {member.mention} {count} credits! '
-                                   f'\nMemo: {reason}'
-                                   f'\n{tax_count} credits were withheld for handling fees.')
+                    message = f'{ctx.author.mention} have gifted {member.mention} {helper.credits_to_string(count)}! '
+                    if reason is not None:
+                        message += f'\nMemo: {reason}'
+                    message += f'\n{helper.credits_to_string(tax_count)} were withheld for handling fees.'
+                    await ctx.send(message)
                     await self.change_credits(giver, -1 * count)
                     await self.change_credits(taker, give_count)
-                    await self.change_credits(775808657199333376, tax_count)
+                    await self.change_credits(self.bot_discord_uid, tax_count)
                 else:
                     await ctx.send(f'You only have {giver_total} credits!')
             else:
@@ -430,30 +477,47 @@ class Economy(commands.Cog):
                 'SELECT DISTINCT rarity_code FROM gray.sw_card_db ORDER BY 1'
                ) AS ct (discord_uid bigint, "C" int, "L" int, "R" int, "S" int, "U" int) 
    
-                RIGHT JOIN gray.rpginfo AS rpginfo on ct.discord_uid = rpginfo.discord_uid ORDER BY "TOTAL" DESC;""")
+                RIGHT JOIN gray.rpginfo AS rpginfo on ct.discord_uid = rpginfo.discord_uid 
+                WHERE rpginfo.discord_uid <> $1 ORDER BY "TOTAL" DESC;""", self.bot_discord_uid)
         menu = menus.MenuPages(source=EconomyLB(ctx, value_lb), clear_reactions_after=True)
         await menu.start(ctx)
         await ctx.message.delete()
 
     @commands.command()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
-    async def duel(self, ctx, opponent: discord.Member, wager: int):
-        """Duel a specific user for x credits"""
+    async def duel(self, ctx, opponent: discord.Member, amount: str):
+        """Duel a specific user for x credits
+        Usage:
+        $duel @user amount
+
+        Example:
+        $duel @user 500
+        $duel @user 10k
+        $duel @user 1.2M"""
+        wager = 0
+        try:
+            wager = helper.parse_amount(amount)
+        except ValueError:
+            await ctx.send('Invalid argument: {}\nType "$help duel" for more info.'.format(amount))
+            return
+
         if ctx.author.id == opponent.id:
             await ctx.send('You cannot duel yourself.')
             return
         one_credits_total = await self.get_credits(ctx.author.id)
         two_credits_total = await self.get_credits(opponent.id)
         if one_credits_total < wager:
-            await ctx.send(f'{ctx.author.mention} only has {one_credits_total} credits.')
+            await ctx.send(f'{ctx.author.mention} only has {helper.credits_to_string(one_credits_total)}.')
         elif two_credits_total < wager:
-            await ctx.send(f'{opponent.mention} only has {two_credits_total} credits.')
+            await ctx.send(f'{opponent.mention} only has {helper.credits_to_string(two_credits_total)}.')
         else:
-            emoji_list = ['<:swblaster:763109456774430821>', '<:sabergreen:839526247113555998>',
-                          '<:SidSmile:768524163505061918>', '🏃']
+            emoji_list = [helper.get_config('blaster_emoji'), 
+                          helper.get_config('saber_green_emoji'),
+                          helper.get_config('sid_smile_emoji'), 
+                          '🏃']
 
             async def duel_helper(one: discord.Member, two: discord.Member, emojis, b_count):
-                msg = await one.send(f'Dueling against {two.display_name} for {b_count} credits!'
+                msg = await one.send(f'Dueling against {two.display_name} for {helper.credits_to_string(b_count)}!'
                                      f'\nPlease select one of the below emojis!'
                                      f'\n(Response is final, you cannot change after submission.)'
                                      f'\nBlaster < Saber < Force < Blaster'
@@ -558,20 +622,20 @@ class Economy(commands.Cog):
                     await self.change_credits(opponent.id, (-1 * wager) + (2 * prize))
                 else:
                     print('This is not in the result matrix.')
-                await self.change_credits(775808657199333376, (2 * tax))
+                await self.change_credits(self.bot_discord_uid, (2 * tax))
                 coin_string1 = f'{one_name}\n{two_name}'
-                coin_string2 = f'{one_credits_total:,} > {one_credits_total - wager:,} -> {await self.get_credits(ctx.author.id):,} C' \
-                               f'\n{two_credits_total:,} > {two_credits_total - wager:,} -> {await self.get_credits(opponent.id):,} C'
+                coin_string2 = f'{helper.credits_to_string(one_credits_total)} > {helper.credits_to_string(one_credits_total - wager)} -> {helper.credits_to_string(await self.get_credits(ctx.author.id))}' \
+                               f'\n{helper.credits_to_string(two_credits_total)} > {helper.credits_to_string(two_credits_total - wager)} -> {helper.credits_to_string(await self.get_credits(opponent.id))}'
             embed = discord.Embed(title="Duel Results", description=result_string, colour=em_color)
             embed.set_thumbnail(url=em_avatar)
             embed.add_field(name='Aggressor', value=f'{ctx.author.mention}', inline=True)
             embed.add_field(name='~V.S~', value=f'{one_r}v{two_r}', inline=True)
             embed.add_field(name='Defender', value=f'{opponent.mention}', inline=True)
             if not str(result)[-1] == '9' and not str(result)[:1] == '0':
-                embed.add_field(name='__Prize__', value=f'{2 * prize:,} C', inline=False)
+                embed.add_field(name='__Prize__', value=f'{helper.credits_to_string(2 * prize)}', inline=False)
                 embed.add_field(name='__Name__', value=coin_string1, inline=True)
                 embed.add_field(name='__Change__', value=coin_string2, inline=True)
-            embed.set_footer(text=f'Cleaner Fee: {2 * tax} C')
+            embed.set_footer(text=f'Cleaner Fee: {helper.credits_to_string(2 * tax)}')
             await ctx.send(embed=embed)
 
     @duel.error
@@ -621,7 +685,7 @@ class Economy(commands.Cog):
         else:
             print(error)
 
-    @commands.command(aliases=['slots'])
+    @commands.command(aliases=['s', 'slots'])
     # @commands.has_any_role('Droid Engineer')
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
     async def slot(self, ctx):
@@ -639,15 +703,15 @@ class Economy(commands.Cog):
     @commands.command(aliases=['slots_info'])
     async def slot_info(self, ctx):
         """Information on the slot machine"""
-        slot_emoji_list = ['<:saberwhite:839526247209500712>',
-                           '<:saberred:839526247108575272>', '<:saberpurple:839526247159037982>',
-                           '<:saberblue:839526247146848284>', '<:sabergreen:839526247113555998>',
-                           '<:swblaster:763109456774430821>', '<:PorgStab:761886195432423474>',
-                           '<:SidSmile:768524163505061918>', '<:GraySquadron:761887065448251412>']
-        symbol_string = '\n'.join(slot_emoji_list)
-        action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑', '🔟', '💯']
-        action_list = '\n'.join(['Spin!', 'Cash out current net', 'Previous Machine', 'Next Machine', 'Quit.', 'x10!', 'x100!!'])
-        control_string = '\n'.join(action_emoji_list)
+        slot_emoji_list = [helper.get_config('saber_white_emoji'),
+                           helper.get_config('saber_red_emoji'),
+                           helper.get_config('saber_purple_emoji'),
+                           helper.get_config('saber_blue_emoji'),
+                           helper.get_config('saber_green_emoji'),
+                           helper.get_config('blaster_emoji'),
+                           helper.get_config('porg_stab_emoji'),
+                           helper.get_config('sid_smile_emoji'),
+                           helper.get_config('gray_squadron_emoji')]
         info_emoji_list = ['⬅', '➡', '🛑']
         stop = False
 
@@ -694,21 +758,22 @@ class Economy(commands.Cog):
             info_string = 'Medals'
             rewards_string = ''
             for idx in range(1, 10):
-                reward = selected_rewards.get(idx)
-                rewards_string += f'{reward}\n'
+                rewards_string += '{}: {}\n'.format(slot_emoji_list[idx-1], selected_rewards.get(idx))
             new_embed = discord.Embed(title='Slot Machine Info!', description='Your personal guide to gambling.',
                                       colour=0xFFFF)
             new_embed.add_field(name='Slot Type', value=machine_name, inline=True)
             new_embed.add_field(name='Cost', value=selected_info.get('cost') * selected_info.get('max_spin'),
                                 inline=True)
             new_embed.add_field(name='Major Jackpot', value=selected_info.get('major_jackpot'), inline=True)
-            new_embed.add_field(name='Symbol', value=symbol_string, inline=True)
-            new_embed.add_field(name='Reward', value=rewards_string, inline=True)
+            new_embed.add_field(name='Rewards', value=rewards_string, inline=False)
             new_embed.add_field(name='Bonuses',
                                 value='Any 2 sabers to x2 that spin!\nAny 3 sabers to x5 that spin!\nGet 3 Gray Symbols for JACKPOT!',
                                 inline=False)
-            new_embed.add_field(name='Controls', value=control_string, inline=True)
-            new_embed.add_field(name='Action', value=action_list, inline=True)
+            new_embed.add_field(name='Actions', value='🕹️: Spin!\n' 
+                                                      '💰: Cash out current net\n'
+                                                      '⬅: Previous Machine\n'
+                                                      '➡: Next Machine\n'
+                                                      '🛑: Quit', inline=False)
             new_embed.add_field(name='Future updates to include:', value=info_string, inline=False)
             new_embed.set_footer(text='Help Hotline: 1-800-522-4700')
             return new_embed
@@ -759,53 +824,123 @@ class Economy(commands.Cog):
 
     @commands.command()
     # @commands.has_any_role('Droid Engineer')
-    async def buy(self, ctx, item_code: str, quantity: int = 1):
-        """Provide item code and quantity to purchase. $buy <item_code> (quantity)"""
-        # Validate user quantity is a positive number
-        if quantity < 1:
-            return
-        discord_uid = ctx.author.id
-        user_credit_total = await self.get_credits(discord_uid)
-        # Validate item exists in database
-        try:
-            item_cost, item_quantity, user_quantity = await self.get_item_cost_quantity(discord_uid, item_code)
-            user_quantity = 0 if user_quantity is None else user_quantity
-        except IndexError:
-            await ctx.send('Sorry, that is not a valid item code! Please check $shop.')
-            return
-        # Validate this item is in stock
-        if item_quantity + user_quantity < quantity:
-            await ctx.send('Sorry, there are not enough available to purchase!')
-            return
-        total_cost = item_cost * quantity
-        # Validate user has funds to purchase item
-        if total_cost > user_credit_total:
-            await ctx.send('Sorry, you do not have enough credits for this purchase!')
-            return
-        _, _, tax_rate = self.credits_tier(user_credit_total)
-        try:
-            # Update item quantity
-            await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
-            item_category, item_subcategory = await self.get_item_category(item_code)
-            if item_category == 'deck':
-                cards_list, names_list = await self.open_cardpack(item_code, quantity)
-                for card_code in cards_list:
-                    await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
-                # TODO: cps never shows the cards you buy
-                await ctx.send(f'Cards revealed: {", ".join(names_list)}')
-        except Exception as e:
-            print(e)
-            return
+    async def buy(self, ctx, item_command: str, quantity: int = 1):
+        """Provide item code and quantity to purchase.
+
+        Arguments:
+        - item_code: Code from the item you want to buy (cp1, cp2, ...)
+        - all: Buy all the items in the shop (cp1 to cp5, cpa, cpf and cps)
+        - cpx: Buy all the cp1 to cp5 items
+        - quantity: If you provided an item_code, you can specify an optional quantity
+
+        Examples:
+        - $buy cp1
+        Buy one cp1 card
+
+        - $buy cp4 3
+        Buy 3 cp4 cards
+
+        - $buy all
+        Buy everything you can until the shop is empty or you run out of money
+
+        - $buy cpx
+        Buy all the cp1 to cp5 cards until the shop is empty or you run out of money"""
+
+        # Build the list of items to buy
+        item_code_list = []
+        buy_single_item = False
+        quantity_bought = 0
+        if item_command == "all":
+            item_code_list=list(self.item_code_card_rarity_dict.keys())+list(self.card_pack_type_dict.keys())
+        elif item_command == "cpx":
+            item_code_list=list(self.item_code_card_rarity_dict.keys())
         else:
-            # Update credits balances
-            tax_amount = math.floor(total_cost * tax_rate)
-            await self.change_credits(discord_uid, -1 * total_cost)
-            await self.change_credits(775808657199333376, tax_amount)
-            await ctx.send('Transaction successful!')
-            # TODO: Embed to display what was bought
-            # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
-            # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
-            # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+            buy_single_item = True
+            item_code_list.append(item_command)
+
+        messages = []
+        for item_code in item_code_list:
+            # Validate user quantity is a positive number
+            if quantity < 1:
+                return
+            discord_uid = ctx.author.id
+            user_credit_total = await self.get_credits(discord_uid)
+            # Validate item exists in database
+            try:
+                item_cost, item_quantity, user_quantity = await self.get_item_cost_quantity(discord_uid, item_code)
+                user_quantity = 0 if user_quantity is None else user_quantity
+            except IndexError:
+                await ctx.send('Sorry, that is not a valid item code! Please check $shop.')
+                return
+            
+            total_cost = 0
+
+            # Only handle quantity argument for single purchase, buy as many as possible otherwise
+            if buy_single_item:
+                # Validate this item is in stock
+                if item_quantity + user_quantity < quantity:
+                    await ctx.send('Sorry, there are not enough available to purchase!')
+                    return
+                total_cost = item_cost * quantity
+                # Validate user has funds to purchase item
+                if total_cost > user_credit_total:
+                    await ctx.send('Sorry, you do not have enough credits for this purchase!')
+                    return
+            else:
+                # No cards to buy, continue
+                if item_quantity + user_quantity == 0:
+                    continue
+                # Buy as many cards as possible
+                quantity = min(item_quantity + user_quantity, math.floor(user_credit_total / item_cost))
+                # Not enough money to buy more cards, exit
+                if quantity == 0:
+                    if quantity_bought == 0:
+                        await ctx.send('Sorry, you do not have enough credits for this purchase!')
+                    else:
+                        await ctx.send('{}\n{}'.format('\n'.join(messages), 
+                            f'You have bought {quantity_bought} card(s) but you do not have enough credits to buy all the cards requested.'))
+                    return
+                total_cost = item_cost * quantity
+
+            _, _, tax_rate = self.credits_tier(user_credit_total)
+            try:
+                # Update item quantity
+                quantity_bought += quantity
+                await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
+                item_category, item_subcategory = await self.get_item_category(item_code)
+                if item_category == 'deck':
+                    cards_list, names_list = await self.open_cardpack(item_code, quantity)
+                    for card_code in cards_list:
+                        await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
+
+                    item_name = ''
+                    if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
+                        item_name = self.item_code_card_rarity_name_dict[item_code]
+                    elif item_code == 'cpa':
+                        item_name = self.current_affiliation
+                    elif item_code == 'cpf':
+                        item_name = self.current_faction
+                    elif item_code == 'cps':
+                        item_name = self.current_set
+
+                    messages.append('{} cards revealed:\n- {}'.format(item_name, helper.join_with_and('{} ({})'.format(name, code) for code, name in zip(cards_list, names_list))))
+            except Exception as e:
+                print(e)
+                return
+            else:
+                # Update credits balances
+                tax_amount = math.floor(total_cost * tax_rate)
+                await self.change_credits(discord_uid, -1 * total_cost)
+                await self.change_credits(self.bot_discord_uid, tax_amount)
+                # TODO: Embed to display what was bought
+                # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
+                # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
+                # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+        if quantity_bought > 0:
+            messages.append('Transaction successful! For more details about cards, use \"$deck <card_code(s)>\".')
+        else:
+            messages.append('Nothing to buy!')
+        await ctx.send('\n'.join(messages))
 
     @buy.error
     async def buy_error(self, ctx, error):
@@ -814,59 +949,414 @@ class Economy(commands.Cog):
         else:
             print(error)
 
-    # TODO: hmm otherwise a filter? Like if you type "$deck villains" you only show the villains?
-    @commands.command()
-    async def deck(self, ctx, user: discord.Member = None):
-        """Displays your collection of cards"""
+    @commands.command(aliases=['card', 'cards'])
+    async def deck(self, ctx, *args):
+        """Displays your collection of cards, or the one from another user.
+
+        You can use various arguments to filter the deck by affiliation and/or faction,
+        and you can use the "missing" argument to see card you don't own.
+        
+        Arguments:
+        - h, hero, heroes: Affiliation filter for hero cards
+        - n, neutral, neutrals: Affiliation filter for neutral cards
+        - v, villain, villains: Affiliation filter for villain cards
+        - s, starter, starters: Rarity filter for starters cards
+        - c, common: Rarity filter for common cards
+        - u, uncommon: Rarity filter for uncommon cards
+        - r, rare: Rarity filter for rare cards
+        - l, legendary: Rarity filter for legendary cards
+        - Card codes: One or multiple card numbers seperated by a space
+        - missing: Shows the cards you don't own, can be combined with filters
+
+        Examples:
+        - $deck
+        Shows your complete deck
+
+        - $deck @user villain
+        Shows all the villains cards from user
+
+        - $deck l
+        Shows all your legendary cards
+
+        - $deck h s
+        Shows all your hero starters cards
+
+        - $deck h n r l
+        Shows all your cards of affiliation hero or neutral, and of rarity rare or legendary
+
+        - $deck 01001 
+        Shows the card 01001
+
+        - $deck 01001 01002
+        Shows the cards 01001 and 01002
+
+        - $deck missing
+        Shows all the cards you don't own
+
+        - $deck missing v l
+        Shows all the villains legendary cards you don't own"""
+        missing = False
+        try:
+            if 'missing' in args:
+                missing = True
+            user, _, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
+        except ValueError as err:
+            await ctx.send('{}\nType "$help deck" for more info.'.format(err))
+
+        if missing and card_codes:
+            await ctx.send('Invalid arguments. You can\'t use both "missing" and card codes at the same time.\nType "$help request_card" for more info.')
+            return
+        else:
+            if user is None:
+                user = ctx.author
+
+            user_deck = Deck(self, ctx, user, affiliation_codes, rarity_codes, card_codes, missing)
+            await user_deck.run()
+
+    @commands.command(aliases=['deck_stat'])
+    async def deck_stats(self, ctx, user: discord.Member = None):
+        """$deck_stats @user"""
         if user is None:
             user = ctx.author
-        user_deck = Deck(self, ctx, user)
-        await user_deck.run()
 
-    # TODO: Maybe have $send_card and $request_card commands would make things clearer than $trade_card that many people don't know which way it's going
-    @commands.command()
-    async def trade_card(self, ctx, user: discord.Member, request_card_code: str):
-        """$trade_card @user <card_code>"""
         async with self.client.pool.acquire() as connection:
             async with connection.transaction():
-                card_quantity = await connection.fetchval(
-                    """SELECT count FROM gray.user_deck WHERE discord_uid = $1 AND code = $2""",
-                    user.id, request_card_code)
-                card_name = await connection.fetchval(
-                    """SELECT name FROM gray.sw_card_db WHERE code = $1""", request_card_code)
+                user_deck_record = await connection.fetch(
+                    """SELECT deck.code, deck.count, cards_db.affiliation_code, cards_db.rarity_code FROM gray.user_deck AS deck 
+                    INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                    WHERE deck.discord_uid = $1 AND deck.count > 0""",
+                    user.id)
 
-                if card_quantity is None or card_quantity == 0:
-                    await ctx.send(f'{user.display_name} does not have {request_card_code} in their deck.')
+                total_cards = 0
+                unique_cards = 0
+                deck_value = 0
+                total_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
+                unique_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
+                total_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
+                unique_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
+
+                for card in user_deck_record:
+                    total_cards += card['count']
+                    unique_cards += 1
+                    total_rarity_dict[card['rarity_code']] += card['count']
+                    unique_rarity_dict[card['rarity_code']] += 1
+                    total_affiliation_dict[card['affiliation_code']] += card['count']
+                    unique_affiliation_dict[card['affiliation_code']] += 1
+                    deck_value += self.card_rarity_value[card['rarity_code']] * card['count']
+
+                embed = discord.Embed(title='Deck Stats', description='')
+                embed.set_author(name=user.display_name, icon_url=user.avatar_url)
+                embed.add_field(name='Total cards', value=total_cards)
+                embed.add_field(name='Completion', value='{}/{}'.format(unique_cards, self.card_count))
+                embed.add_field(name='Value', value=f'{helper.credits_to_string(deck_value)}', inline=False)
+                embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
+                                                           'Neutrals: {} ({}/{})\n'
+                                                           'Villains: {} ({}/{})\n'
+                    .format(total_affiliation_dict['hero'], unique_affiliation_dict['hero'], self.card_affiliation_count['hero'],
+                    total_affiliation_dict['neutral'], unique_affiliation_dict['neutral'], self.card_affiliation_count['neutral'],
+                    total_affiliation_dict['villain'], unique_affiliation_dict['villain'], self.card_affiliation_count['villain']), inline=False)
+                embed.add_field(name='Rarity', value='Starters: {} ({}/{})\n'
+                                                     'Common: {} ({}/{})\n'
+                                                     'Uncommon: {} ({}/{})\n'
+                                                     'Rare: {} ({}/{})\n'
+                                                     'Legendary: {} ({}/{})'
+                    .format(total_rarity_dict['S'], unique_rarity_dict['S'], self.card_rarity_count['S'],
+                        total_rarity_dict['C'], unique_rarity_dict['C'], self.card_rarity_count['C'],
+                        total_rarity_dict['U'], unique_rarity_dict['U'], self.card_rarity_count['U'],
+                        total_rarity_dict['R'], unique_rarity_dict['R'], self.card_rarity_count['R'],
+                        total_rarity_dict['L'], unique_rarity_dict['L'], self.card_rarity_count['L']), inline=False)
+                await ctx.send(embed=embed)
+
+    @commands.command(aliases=['request_cards', 'transfer_card', 'transfer_cards'])
+    async def request_card(self, ctx, *args):
+        """Request cards from another user. 
+
+        Specify either one or more card codes, or request all cards matching the filters at once.
+        
+        Arguments:
+        - all: Request the user's entire deck
+        - h, hero, heroes: Affiliation filter for hero cards
+        - n, neutral, neutrals: Affiliation filter for neutral cards
+        - v, villain, villains: Affiliation filter for villain cards
+        - s, starter, starters: Rarity filter for starters cards
+        - c, common: Rarity filter for common cards
+        - u, uncommon: Rarity filter for uncommon cards
+        - r, rare: Rarity filter for rare cards
+        - l, legendary: Rarity filter for legendary cards
+        - Card codes: One or multiple card numbers seperated by a space
+
+        Examples:
+        - $request_card @user all
+        Requests all your cards from user
+
+        - $request_card @user hero
+        Requests all your hero cards from user
+
+        - $request_card @user v c
+        Requests all your common villain cards from user
+
+        - $request_card @user s
+        Requests all your starters cards from user
+
+        - $request_card @user h n r l
+        Requests all your cards of affiliation hero or neutral, and of rarity rare or legendary from user
+
+        - $request_card @user 01001
+        Requests 01001 from user
+
+        - $request_card @user 01001 01002
+        Requests 01001 and 01002 from user"""
+
+        try:
+            user, request_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+        except ValueError as err:
+            await ctx.send('{}\nType "$help request_card" for more info.'.format(err))
+            return
+        if user is None:
+            await ctx.send('Invalid arguments. You must specify a user.\nType "$help request_card" for more info.')
+            return
+        elif not (request_all or affiliation_codes or rarity_codes or card_codes):
+            await ctx.send('Invalid arguments. You must specify something to request.\nType "$help request_card" for more info.')
+            return
+
+        async def fetch_cards_records() -> list:
+            async with self.client.pool.acquire() as connection:
+                async with connection.transaction():
+                    if card_codes:
+                        return await connection.fetch(
+                            """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND count > 0 AND deck.code = ANY($2::text[])""",
+                            user.id, card_codes)
+                    else:
+                        return await connection.fetch(
+                            """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND count > 0 AND 
+                            cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                            user.id,
+                            affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                            rarity_codes if rarity_codes else self.card_rarity_list)
+
+        cards_records = await fetch_cards_records()
+
+        if not cards_records:
+            await ctx.send(f'No cards matching the request.')
+        else:
+            # If the user provided card code(s), check that we have enough of them
+            # Note that the same card code can be provided multiple times
+            for card_code in card_codes:
+                card_found = False
+                for card in cards_records:
+                    if card['code'] == card_code:
+                        card_found = True
+                        if card['count'] < card_codes.count(card_code):
+                            await ctx.send(f'Not enough {card_code} cards matching the request.')
+                            return
+                if not card_found:
+                    await ctx.send(f'You don\'t have the card {card_code}.')
+                    return
+
+            trade_emojis = ['✅', '🚫']
+            total_card_quantity = 0
+            for card in cards_records:
+                total_card_quantity += card['count']
+
+            if card_codes:
+                await ctx.send('{} requested...'.format(helper.join_with_and('{} ({}{})'.format(
+                    card['name'], 
+                    '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                    card['code']) for card in cards_records)))
+            else:
+                await ctx.send(f'{total_card_quantity} cards requested...')
+
+            async def request_card_helper() -> str:
+                msg = None
+                if request_all:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your cards ({total_card_quantity} cards)')
+                elif affiliation_codes and rarity_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {self.card_rarity_name_dict[rarity_codes].lower()} {affiliation_codes} cards ({total_card_quantity} cards)')
+                elif affiliation_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {affiliation_codes} cards ({total_card_quantity} cards)')
+                elif rarity_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {rarity_codes} cards ({total_card_quantity} cards)')
+                elif card_codes:
+                    msg = await user.send('{} is requesting card(s): {}'.format(ctx.author.display_name, helper.join_with_and('{} ({}{})'.format(
+                        card['name'], 
+                        '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                        card['code']) for card in cards_records)))
+                for emoji in trade_emojis:
+                    await msg.add_reaction(emoji)
+
+                def check(r, u):
+                    # R = Reaction, U = User
+                    return u == user and str(
+                        r.emoji) in trade_emojis and r.message.channel == user.dm_channel and r.message.id == msg.id
+
+                try:
+                    reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
+                except asyncio.TimeoutError:
+                    await ctx.send(f'Trade has timed out between {ctx.author.display_name} and {user.display_name}.')
+                    return 'Timeout'
+                return str(reaction.emoji)
+            user_input = await request_card_helper()
+            # Accept
+            if user_input == trade_emojis[0]:
+                cards_records = await fetch_cards_records()
+
+                total_cards_sent = 0
+                for card in cards_records:
+                    quantity = card['count']
+                    if card_codes:
+                        quantity = card_codes.count(card['code'])
+                    await self.change_user_item_quantity(user.id, 'deck', 'card', card['code'], -1*quantity)
+                    await self.change_user_item_quantity(ctx.author.id, 'deck', 'card', card['code'], quantity)
+                    total_cards_sent += quantity
+
+                if card_codes:
+                    await ctx.send('{} has traded {} to {}!'.format(user.mention, helper.join_with_and('{} ({}{})'.format(
+                        card['name'], 
+                        '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                        card['code']) for card in cards_records), ctx.author.mention))
                 else:
-                    trade_emojis = ['✅', '🚫']
+                    await ctx.send(f'{user.mention} has traded {total_cards_sent} cards to {ctx.author.mention}!')
+            else:
+                await ctx.send(f'{user.mention} has rejected the request.')
 
-                    async def trade_card_helper() -> str:
+    @commands.command(aliases=['send_cards'])
+    async def send_card(self, ctx, *args):
+        """Send cards to another user. 
 
-                        msg = await user.send(f'{ctx.author.display_name} is requesting card: {card_name}')
-                        for emoji in trade_emojis:
-                            await msg.add_reaction(emoji)
+        Specify either one or more card codes, or send all your cards matching the filters at once.
+        
+        Arguments:
+        - all: Send your entire deck
+        - h, hero, heroes: Affiliation filter for hero cards
+        - n, neutral, neutrals: Affiliation filter for neutral cards
+        - v, villain, villains: Affiliation filter for villain cards
+        - s, starter, starters: Rarity filter for starters cards
+        - c, common: Rarity filter for common cards
+        - u, uncommon: Rarity filter for uncommon cards
+        - r, rare: Rarity filter for rare cards
+        - l, legendary: Rarity filter for legendary cards
+        - Card codes: One or multiple card numbers seperated by a space
 
-                        def check(r, u):
-                            # R = Reaction, U = User
-                            return u == user and str(
-                                r.emoji) in trade_emojis and r.message.channel == user.dm_channel and r.message.id == msg.id
+        Examples:
+        - $send_card @user all
+        Sends all your cards to user
 
-                        try:
-                            reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
-                        except asyncio.TimeoutError:
-                            await ctx.send(f'Trade has timed out between {ctx.author.display_name} and {user.display_name}.')
-                            return 'Timeout'
-                        return str(reaction.emoji)
-                    user_input = await trade_card_helper()
-                    # Accept
-                    if user_input == trade_emojis[0]:
-                        card_quantity = await connection.fetchval(
-                            """SELECT count FROM gray.user_deck WHERE discord_uid = $1 AND code = $2""",
-                            user.id, request_card_code)
-                        if card_quantity > 0:
-                            await self.change_user_item_quantity(ctx.author.id, 'deck', 'card', request_card_code, 1)
-                            await self.change_user_item_quantity(user.id, 'deck', 'card', request_card_code, -1)
-                            await ctx.send(f'{user.mention} has traded {card_name} to {ctx.author.mention}!')
+        - $send_card @user hero
+        Sends all your hero cards to user
+
+        - $send_card @user v c
+        Sends all your common villain cards to user
+
+        - $send_card @user s
+        Sends all your starters cards to user
+
+        - $send_card @user h n r l
+        Sends all your cards of affiliation hero or neutral, and of rarity rare or legendary to user
+
+        - $send_card @user 01001
+        Sends 01001 to user
+
+        - $send_card @user 01001 01002
+        Sends 01001 and 01002 to user"""
+
+        try:
+            user, send_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+        except ValueError as err:
+            await ctx.send('{}\nType "$help send_card deck" for more info.'.format(err))
+            return
+        if user is None:
+            await ctx.send('Invalid arguments. You must specify a user to send the card to.\nType "$help send_card" for more info.')
+            return
+
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                cards_records = None
+                if card_codes:
+                    cards_records = await connection.fetch(
+                        """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND count > 0 AND deck.code = ANY($2::text[])""",
+                        ctx.author.id, card_codes)
+                else:
+                    cards_records = await connection.fetch(
+                        """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND count > 0 AND 
+                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        ctx.author.id, 
+                        affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                        rarity_codes if rarity_codes else self.card_rarity_list)
+
+                if not cards_records:
+                    await ctx.send(f'No cards to send matching the request.')
+                else:
+                    # Is the user provided card code(s), check that we have enough of them
+                    # Note that the same card code can be provided multiple times
+                    for card_code in card_codes:
+                        card_found = False
+                        for card in cards_records:
+                            if card['code'] == card_code:
+                                card_found = True
+                                if card['count'] < card_codes.count(card_code):
+                                    await ctx.send(f'Not enough cards to send matching the request.')
+                                    return
+                        if not card_found:
+                            await ctx.send(f'You don\'t have the card {card_code}.')
+                            return
+
+                    total_cards_sent = 0
+                    for card in cards_records:
+                        quantity = card['count']
+                        if card_codes:
+                            quantity = card_codes.count(card['code'])
+                            
+                        await self.change_user_item_quantity(ctx.author.id, 'deck', 'card', card['code'], -1*quantity)
+                        await self.change_user_item_quantity(user.id, 'deck', 'card', card['code'], quantity)
+                        total_cards_sent += quantity
+
+                    if card_codes:
+                        await ctx.send('{} has sent {} to {}!'.format(ctx.author.mention, 
+                            helper.join_with_and('{} ({}{})'.format(
+                                card['name'], 
+                                '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
+                                card['code']) for card in cards_records), 
+                                user.mention))
+                    else:
+                        await ctx.send(f'{ctx.author.mention} has sent {total_cards_sent} cards to {user.mention}!')
+
+    @commands.command(aliases=['who_has'])
+    async def who_has_card(self, ctx, card_code: str):
+        """List the members who have the specified card in their deck.
+
+        Usage:
+        $who_has_card card_code
+        Ex: $who_has_card 01001"""
+        if not helper.is_valid_card_number_format(card_code):
+            await ctx.send('Invalid argument. You must specify a card number.\nType "$help who_has_card" for more info.')
+            return
+
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                uid_count_record = await connection.fetch(
+                    """SELECT discord_uid, count FROM gray.user_deck
+                    WHERE code = $1 AND count > 0""",
+                    card_code)
+
+                if not uid_count_record:
+                    await ctx.send('Nobody has the card you\'re looking for.')
+                else:
+                    user_quantity_strings = []
+                    for entry in uid_count_record:
+                        member = await ctx.guild.fetch_member(entry['discord_uid'])
+                        user_quantity_strings.append('{} ({}x)'.format(member, entry['count']))
+                    if len(user_quantity_strings) == 1:
+                        await ctx.send('{} has the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
+                    else:
+                        await ctx.send('{} have the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
 
     # Background Tasks
     @tasks.loop(seconds=600, reconnect=True)
@@ -896,7 +1386,7 @@ class Economy(commands.Cog):
                 _, _, tax_rate = self.credits_tier(credits_total)
                 tax_amount = math.ceil(credits_total * tax_rate)
                 await self.change_credits(discord_uid, -1 * tax_amount)
-                await self.change_credits(775808657199333376, tax_amount)
+                await self.change_credits(self.bot_discord_uid, tax_amount)
                 member = guild.get_member(discord_uid)
                 await member.send(f'You have been taxed {tax_rate} on your balance of {credits_total}.'
                                   f'\nThank you for being an integral cog of our society!')
@@ -909,11 +1399,11 @@ class Economy(commands.Cog):
     @tasks.loop(minutes=1, reconnect=True)
     async def restock_shop(self):
         """Check every minute whether the shop needs restock"""
-        cd, _ = await self.check_cd(775808657199333376, 'RESTOCK')
-        cdm, _ = await self.check_cd(775808657199333376, 'RESTOCK_MINOR')
+        cd, _ = await self.check_cd(self.bot_discord_uid, 'RESTOCK')
+        cdm, _ = await self.check_cd(self.bot_discord_uid, 'RESTOCK_MINOR')
         if cd:
             # Update shop quantity
-            await self.set_cd(775808657199333376, 'RESTOCK', 'HH', 24, False)
+            await self.set_cd(self.bot_discord_uid, 'RESTOCK', 'HH', 24, False)
             async with self.client.pool.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute("""UPDATE gray.user_shop_quantity SET quantity = 0""")
@@ -921,7 +1411,7 @@ class Economy(commands.Cog):
             await self.get_card_db_info()
         elif cdm:
             # Update shop quantity
-            await self.set_cd(775808657199333376, 'RESTOCK_MINOR', 'HH', 8, False)
+            await self.set_cd(self.bot_discord_uid, 'RESTOCK_MINOR', 'HH', 8, False)
             async with self.client.pool.acquire() as connection:
                 async with connection.transaction():
                     await connection.execute("""UPDATE gray.user_shop_quantity
@@ -933,15 +1423,20 @@ class Economy(commands.Cog):
 
 class SlotMachine:
     # TODO: Han Solo Machine
-    slot_emoji_list = ['<a:sw_slot:839526247255375892>', '<:saberwhite:839526247209500712>',
-                       '<:saberred:839526247108575272>', '<:saberpurple:839526247159037982>',
-                       '<:saberblue:839526247146848284>', '<:sabergreen:839526247113555998>',
-                       '<:swblaster:763109456774430821>', '<:PorgStab:761886195432423474>',
-                       '<:SidSmile:768524163505061918>', '<:GraySquadron:761887065448251412>']
+    slot_emoji_list = [helper.get_config('slot_emoji'),
+                       helper.get_config('saber_white_emoji'),
+                       helper.get_config('saber_red_emoji'),
+                       helper.get_config('saber_purple_emoji'),
+                       helper.get_config('saber_blue_emoji'),
+                       helper.get_config('saber_green_emoji'),
+                       helper.get_config('blaster_emoji'),
+                       helper.get_config('porg_stab_emoji'),
+                       helper.get_config('sid_smile_emoji'),
+                       helper.get_config('gray_squadron_emoji')]
     # Black, Red, Yellow, Green, Black
     state_list = [['SLOT IDLE', 0x000000], ['YOU LOST', 0xFF0800], ['SPINNING', 0xFFF700],
                   ['YOU WIN', 0x2EFF00], ['CLOSED', 0x000000]]
-    action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑', '🔟', '💯']
+    action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
     card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
     def __init__(self, economy, ctx):
@@ -986,8 +1481,7 @@ class SlotMachine:
 
         self.sent_embed = None
 
-    async def next_machine(self):
-        self.selected_machine_name = next(self.machine_type_names)
+    async def setup_selected_machine(self):
         if self.selected_machine_name == 'JEDI HERO':
             self.bonus = self.player_bonus_dict.get('Hero', 0)
         elif self.selected_machine_name == 'PORG LOVE':
@@ -1015,6 +1509,13 @@ class SlotMachine:
 
         if self.machine_level > 1:
             self.spins_left = math.floor(self.spins_left*4/3)
+
+        #odd levels multi: 1: x1, 2: x10, 3: x100...
+        if self.machine_level % 2 == 1: 
+            self.multi = int(10**((self.machine_level-1) / 2))
+        #even levels multi: 2: x3, 4: x30, 6: x300...
+        else:
+            self.multi = int(3*10**((self.machine_level-2) / 2))
 
     async def select_machine(self):
         """Function get get data for selected machine"""
@@ -1078,16 +1579,18 @@ class SlotMachine:
                                             UPDATE SET bonus = $2, minor_jackpot = $3, major_jackpot = $4""",
                                          machine_name, *jackpot_list)
 
-    async def cash_out(self, c_amount: int, porg_multi: int, epic: int = 0):
-        """Cashout users current slot position"""
+    def get_current_profit_change(self, c_amount: int, porg_multi: int, epic: int = 0) -> int:
         # final_c_amount = -1 * self.player_credits_total if -1 * c_amount > self.player_credits_total else c_amount
+        profit_change = c_amount
         if c_amount > 0:
             profit_change = c_amount * (1.1 ** porg_multi)
             if epic == 0:
                 profit_change = profit_change * (1+self.bonus/100)
-        else:
-            profit_change = c_amount
-        await self.economy.change_credits(self.author.id, profit_change)
+        return profit_change
+
+    async def cash_out(self, c_amount: int, porg_multi: int, epic: int = 0):
+        """Cashout users current slot position"""
+        await self.economy.change_credits(self.author.id, self.get_current_profit_change(c_amount, porg_multi, epic))
         if self.total_spins > 0:
             await self.post_results()
 
@@ -1155,7 +1658,7 @@ class SlotMachine:
                 sith_penalty = math.floor(self.player_credits_total*.1) if self.selected_machine_name == 'SITH REVENGE' else 0
                 await self.add_jackpot(self.selected_machine_name, int((self.epic_fail + sith_penalty) / 100))
                 await casino_channel.send(
-                    f'{sid}{sid} {self.author.mention} LOST TO THE HIGHGROUND! -{self.epic_fail*self.multi + sith_penalty:,} Credits! {sid}{sid}')
+                    f'{sid}{sid} {self.author.mention} LOST TO THE HIGHGROUND! -{helper.credits_to_string(self.epic_fail*self.multi + sith_penalty)}! {sid}{sid}')
             # GRAY
             elif epic > 0 and self.win_bool:
                 await self.cash_out(self.current_jackpot[epic - 1], 0, epic)
@@ -1163,9 +1666,9 @@ class SlotMachine:
                 self.player_credits_total += self.current_jackpot[epic - 1]
                 if epic == 3:
                     await casino_channel.send(
-                        f'💰💰 @here {self.author.mention} WON THE JACKPOT OF {self.current_jackpot[epic - 1]:,}! 💰💰')
+                        f'💰💰 @here {self.author.mention} WON THE JACKPOT OF {helper.credits_to_string(self.current_jackpot[epic - 1])}! 💰💰')
                 elif epic == 2:
-                    await self.ctx.send(f'You won the minor jackpot of {self.current_jackpot[epic-1]:,}!', delete_after=600)
+                    await self.ctx.send(f'You won the minor jackpot of {helper.credits_to_string(self.current_jackpot[epic-1])}!', delete_after=600)
 
     async def slot_reaction_waiter(self) -> str:
         """Async helper to await for reactions"""
@@ -1193,21 +1696,22 @@ class SlotMachine:
         result_string = f'-- {slot_state} --'
         embed = discord.Embed(title=f'**LVL {self.machine_level} {self.selected_machine_name} x{self.multi}**',
                               description=f'EXP: {self.machine_exp} / {self.next_exp:.0f}'
-                                          f'\nMajor Jackpot: {self.current_jackpot[2]:,}'
-                                          f'\nMinor Jackpot: {self.current_jackpot[1]:,}'
-                                          f'\nBonus: {self.current_jackpot[0]:,}',
+                                          f'\nCard Bonus: x{1+self.bonus/100:.2f}'
+                                          f'\nMajor Jackpot: {helper.credits_to_string(self.current_jackpot[2])}'
+                                          f'\nMinor Jackpot: {helper.credits_to_string(self.current_jackpot[1])}'
+                                          f'\nBonus: {helper.credits_to_string(self.current_jackpot[0])}',
                               color=slot_color)
         embed.set_author(name=self.author.display_name, icon_url=self.author.avatar_url)
         embed.set_thumbnail(url=self.selected_machine_icon)
         embed.add_field(name='------------------', value=slot_string, inline=False)
         embed.add_field(name='------------------', value=result_string, inline=False)
-        embed.add_field(name='Profit', value=str(self.profit), inline=True)
+        embed.add_field(name='Profit', value=f'{helper.credits_to_string(self.profit)}', inline=True)
         embed.add_field(name='Multi', value=porg_string, inline=True)
-        embed.add_field(name='CardBonus', value=f'x{1+self.bonus/100:.2f}', inline=True)
+        embed.add_field(name='Total', value=f'{helper.credits_to_string(self.get_current_profit_change(self.profit, self.porg_multi))}', inline=True)
         embed.add_field(name='Spins', value=str(self.spins_left), inline=True)
-        embed.add_field(name='Wallet', value=f'{self.player_credits_total:,} C', inline=True)
+        embed.add_field(name='Wallet', value=f'{helper.credits_to_string(self.player_credits_total)}', inline=True)
         embed.set_footer(
-            text=f'{self.selected_machine_cost*self.multi:,} Play Cost\nConfused? $slot_info\nTime: %s'
+            text=f'Play Cost: {helper.credits_to_string(self.selected_machine_cost*self.multi)}\nConfused? $slot_info\nTime: %s'
                  % datetime.datetime.now().strftime('%Y-%b-%d %H:%M:%S'))
         return embed
 
@@ -1232,6 +1736,8 @@ class SlotMachine:
                 data = await bonus.fetch(self.author.id)
                 user_slot_stats_record = await connection.fetch("""SELECT machine_name, experience FROM gray.user_slot_stats 
                                                                 WHERE discord_uid = $1""", self.author.id)
+                self.selected_machine_name = await connection.fetchval("""SELECT machine_name FROM gray.slot_history 
+                                                                WHERE discord_uid = $1 ORDER BY "timestamp" DESC LIMIT 1""", self.author.id)
 
         def bonus_val(row):
             val = SlotMachine.card_bonus_dict.get(row['rarity_code'])
@@ -1247,8 +1753,12 @@ class SlotMachine:
         self.user_slot_stats_dict = helper.record_to_dict(user_slot_stats_record, 'machine_name')
         self.machine_count = len(list(self.machine_info_dict.keys()))
         self.machine_type_names = cycle(list(self.machine_info_dict.keys()))
-        self.selected_machine_name = self.machine_type_names
-        await self.next_machine()
+
+        # Set the iterator to the selected position
+        while self.selected_machine_name != next(self.machine_type_names):
+            pass
+        
+        await self.setup_selected_machine()
         self.player_credits_total = await self.economy.get_credits(self.author.id)
         self.sent_embed = await self.ctx.send(embed=await self.generate_slot_embed())
         for e in SlotMachine.action_emoji_list:
@@ -1256,7 +1766,7 @@ class SlotMachine:
 
     async def play(self):
         """Play the slot machine"""
-        # action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑', '🔟', '💯']
+        # action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
         while self.spins_left > 0:
             user_input = await self.slot_reaction_waiter()
             # ROLL
@@ -1276,8 +1786,6 @@ class SlotMachine:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 await self.sent_embed.remove_reaction('⬅', self.sent_embed.author)
                 await self.sent_embed.remove_reaction('➡', self.sent_embed.author)
-                await self.sent_embed.remove_reaction('🔟', self.sent_embed.author)
-                await self.sent_embed.remove_reaction('💯', self.sent_embed.author)
                 for slot in range(0, len(self.active_slots) + 1):
                     self.state = 2
                     if slot == len(self.active_slots):
@@ -1308,29 +1816,15 @@ class SlotMachine:
             elif user_input == '⬅':
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 for _ in range(0, self.machine_count - 1):
-                    await self.next_machine()
+                    self.selected_machine_name = next(self.machine_type_names)
+                await self.setup_selected_machine()
                 await self.sent_embed.edit(embed=await self.generate_slot_embed())
             # Next
             elif user_input == '➡':
                 await self.sent_embed.remove_reaction(user_input, self.author)
-                await self.next_machine()
+                self.selected_machine_name = next(self.machine_type_names)
+                await self.setup_selected_machine()
                 await self.sent_embed.edit(embed=await self.generate_slot_embed())
-            # x10 Multi
-            elif user_input == '🔟':
-                await self.sent_embed.remove_reaction(user_input, self.author)
-                if self.machine_level < 3:
-                    await self.ctx.send('Your machine must be level 3 to use this feature!', delete_after=15)
-                else:
-                    self.multi = 10 if self.multi != 10 else 1
-                    await self.sent_embed.edit(embed=await self.generate_slot_embed())
-            # x100 Multi
-            elif user_input == '💯':
-                await self.sent_embed.remove_reaction(user_input, self.author)
-                if self.machine_level < 5:
-                    await self.ctx.send('Your machine must be level 5 to use this feature!', delete_after=15)
-                else:
-                    self.multi = 100 if self.multi != 100 else 1
-                    await self.sent_embed.edit(embed=await self.generate_slot_embed())
             # No response or STOP
             else:
                 self.spins_left = 0
@@ -1463,14 +1957,13 @@ class Shop:
                 item_name = item_name.replace('Faction', self.economy.current_faction)
             elif item_name == 'Random Affiliation':
                 item_name = item_name.replace('Affiliation', self.economy.current_affiliation)
-            item_name_list.append(f"{item_dict.get('emoji')} {item_quantity:,}x{item_name}")
-            item_cost_list.append(f"{item_dict.get('cost'):,}")
-            item_code_list.append(f"{item_dict.get('item_code')}")
-        embed.add_field(name='Item', value='\n'.join(item_name_list))
-        embed.add_field(name='Cost', value='\n'.join(item_cost_list))
-        embed.add_field(name='Code', value='\n'.join(item_code_list))
-        _, time_left = await self.economy.check_cd(775808657199333376, 'RESTOCK')
-        _, time_left_minor = await self.economy.check_cd(775808657199333376, 'RESTOCK_MINOR')
+            embed.add_field(name='{} {}x {} ({})'.format(item_dict.get('emoji'), 
+                                                         item_quantity,
+                                                         item_code,
+                                                         helper.credits_to_string(item_dict.get('cost'))), 
+                            value='{}'.format(item_name), inline=False)
+        _, time_left = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK')
+        _, time_left_minor = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK_MINOR')
         major_text = 'Restocking' if time_left < datetime.timedelta(0) else str(time_left).split('.')[0]
         minor_text = 'Restocking' if time_left_minor < datetime.timedelta(0) else str(time_left_minor).split('.')[0]
         embed.set_footer(text=f"Major Restock: {major_text}"
@@ -1519,7 +2012,7 @@ class Deck:
     card_action_emoji_list = ['↩', '◀', '▶', '🛑']
     card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
-    def __init__(self, economy, ctx, user):
+    def __init__(self, economy, ctx, user: discord.Member, affiliation_codes: list, rarity_codes: list, card_codes: list, missing: bool):
         self.empty = False  # If the users deck is completely empty
         self.is_card = False
 
@@ -1527,6 +2020,10 @@ class Deck:
         self.ctx = ctx
         self.author = ctx.author
         self.target = user
+        self.affiliation_codes = affiliation_codes
+        self.rarity_codes = rarity_codes
+        self.card_codes = card_codes
+        self.missing = missing
 
         self.user_deck_dict = {}  # gray.user_deck
         self.db_select_dict = {}  # gray.sw_card_db
@@ -1549,15 +2046,39 @@ class Deck:
         """Pull card info from database"""
         async with self.economy.client.pool.acquire() as connection:
             async with connection.transaction():
-                user_deck_record = await connection.fetch(
-                    """SELECT code, count, first_acquired FROM gray.user_deck WHERE discord_uid = $1 AND count > 0""",
-                    self.target.id)
+                user_deck_record = None
+                if len(self.card_codes) > 0:
+                    user_deck_record = await connection.fetch(
+                        """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND deck.count > 0 AND deck.code = ANY($2::text[])""",
+                        self.target.id, self.card_codes)
+                else:
+                    user_deck_record = await connection.fetch(
+                        """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
+                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                        WHERE deck.discord_uid = $1 AND deck.count > 0 AND 
+                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        self.target.id, 
+                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list)
+
+                # Get the card codes you don't have
+                if self.missing:
+                    user_deck_record = await connection.fetch(
+                        """SELECT code FROM gray.sw_card_db 
+                        WHERE affiliation_code = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
+                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
+                        [card['code'] for card in user_deck_record])
 
                 for card in user_deck_record:
                     card_code = ''
                     for f, v in card.items():
                         if f == 'code':
                             card_code = v
+                            if self.missing:
+                                self.user_deck_dict[card_code] = {'count': 0, 'first_acquired': None}
                         else:
                             try:
                                 self.user_deck_dict[card_code].update({f: v})
@@ -1569,7 +2090,7 @@ class Deck:
                     return
 
                 db_select_record = await connection.fetch(
-                    """SELECT set_code, * FROM gray.sw_card_db WHERE code = ANY($1::text[])""", card_list)
+                    """SELECT set_code, code, * FROM gray.sw_card_db WHERE code = ANY($1::text[])""", card_list)
                 self.db_select_dict = {}
                 for record in db_select_record:
                     set_code = ''
@@ -1590,9 +2111,16 @@ class Deck:
         self.set_list = sorted(list(self.db_select_dict.keys()))
         self.current_set_code = self.set_list[self.current_set_idx]
         self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
-        self.sent_embed = await self.ctx.send(embed=await self.generate_deck_embed())
-        for e in Deck.deck_action_emoji_list:
-            await self.sent_embed.add_reaction(e)
+
+        # If there's only one card to show, show directly the card embed without reactions
+        self.get_current_deck_info()
+        if len(self.user_deck_dict.keys()) == 1:
+            self.is_card = 1
+            self.sent_embed = await self.ctx.send(embed=await self.generate_card_embed())
+        else:
+            self.sent_embed = await self.ctx.send(embed=await self.generate_deck_embed())
+            for e in Deck.deck_action_emoji_list:
+                await self.sent_embed.add_reaction(e)
 
     def get_current_deck_info(self):
         keys = self.current_set_dict.keys()
@@ -1607,16 +2135,21 @@ class Deck:
 
     async def generate_deck_embed(self) -> discord.Embed:
         """Generate embed that shows entire deck by set"""
-        self.get_current_deck_info()
         current_i_display_names = self.current_display_names[:]
         current_i_display_names[self.current_card_idx] = f' ▶ {self.current_display_names[self.current_card_idx]}'
         for idx, name in enumerate(current_i_display_names):
-            current_i_display_names[idx] = f'{current_i_display_names[idx]} x{self.current_card_counts[idx]}'
+            if self.current_card_counts[idx] > 1:
+                current_i_display_names[idx] = f'{current_i_display_names[idx]} ({self.current_card_counts[idx]}x {self.current_display_code[idx]})'
+            else:
+                current_i_display_names[idx] = f'{current_i_display_names[idx]} ({self.current_display_code[idx]})'
         card_names_string = '\n'.join(current_i_display_names)
 
         embed = discord.Embed(title='Set', description=self.current_set_name, colour=self.ctx.author.colour)
         embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
-        embed.add_field(name='Card Name', value=card_names_string, inline=True)
+        if self.missing:
+            embed.add_field(name='Missing cards', value=card_names_string, inline=True)
+        else:
+            embed.add_field(name='Cards', value=card_names_string, inline=True)
         embed.set_footer(
             text=f'Page {self.current_set_page_idx + 1}/{self.current_set_max_page} of Set {self.current_set_idx + 1}/{len(self.set_list)}')
         return embed
@@ -1644,8 +2177,12 @@ class Deck:
         imagesrc = current_card_dict.get('imagesrc')
         embed = discord.Embed(title=rarity_name, description=effect, colour=color)
         embed.set_image(url=imagesrc)
-        embed.set_footer(
-            text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
+        if first_acquired is None:
+            embed.set_footer(
+                text=f"{current_card_code}\n{position} of {set_name}\nYou do not own this card")
+        else:
+            embed.set_footer(
+                text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
         return embed
 
     async def deck_reaction_waiter(self) -> str:
@@ -1796,7 +2333,7 @@ class Deck:
             await self.open()
             await self.close_out()
         else:
-            await self.ctx.send('You have no cards.')
+            await self.ctx.send('No cards found.')
 
 
 class EconomyLB(menus.ListPageSource):
@@ -1808,7 +2345,7 @@ class EconomyLB(menus.ListPageSource):
         if fields is None:
             fields = []
         len_data = len(self.entries)
-        embed = discord.Embed(title="Leaderboard", description="Galactic Points", colour=self.ctx.author.colour)
+        embed = discord.Embed(title="Leaderboard", description="Galactic Credits", colour=self.ctx.author.colour)
         embed.set_thumbnail(url='https://media.discordapp.net/attachments/800431166997790790/840009740855934996/gray_squadron_logo.png')
         embed.set_footer(text=f"{offset:,} - {min(len_data, offset+self.per_page-1):,} of {len_data:,}.")
         for name, value in fields:
@@ -1816,9 +2353,19 @@ class EconomyLB(menus.ListPageSource):
         return embed
 
     async def format_page(self, menu, entries):
+        def get_rank(idx: int) -> str:
+            if idx == 1:
+                return '🥇'
+            elif idx == 2:
+                return '🥈'
+            elif idx == 3:
+                return '🥉'
+            else:
+                return '{}'.format(idx)
+
         offset = (menu.current_page * self.per_page) + 1
         fields = []
-        table = "\n".join(f"{idx+offset}. {self.ctx.guild.get_member(entry[0]).display_name} - {entry[1]:,} Points" for idx, entry in enumerate(entries))
+        table = "\n".join(f"{get_rank(idx+offset)}. {self.ctx.guild.get_member(entry[0]).display_name} - {helper.credits_to_string(entry[1])}" for idx, entry in enumerate(entries))
         fields.append(("Rank", table))
         return await self.write_page(offset, fields)
 

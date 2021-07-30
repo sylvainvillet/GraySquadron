@@ -1,4 +1,5 @@
 import json
+import discord
 
 
 def get_config(key):
@@ -59,3 +60,128 @@ def record_to_dict(f_record, key_name: str):
                 except KeyError:
                     return_dict[key] = {f: v}
     return return_dict
+
+def join_with_and(values) -> str:
+    """Same as ', '.join() but with ' and ' between the last 2 values"""
+    valuesList = list(values)
+    length = len(valuesList)
+
+    # value1, value2, value3 and value4
+    if length > 2:
+        return ', '.join(valuesList[:-1]) + " and " + str(valuesList[-1])
+    # value1 and value2
+    elif length == 2:
+        return ' and '.join(valuesList)
+    # value 1
+    elif length == 1:
+        return valuesList[0]
+    # Empty
+    return ''
+
+def is_valid_card_number_format(s: str) -> bool:
+    # Between 5 and 7 digits, can have a letter at the end
+    length = len(s)
+    if 5 <= length <= 7:
+        try:
+            int(s)
+            return True
+        except ValueError:
+            try:
+                int(s[:length-1])
+                return s[length-1:] in ['A', 'B', 'C', 'D']
+            except Exception as e:
+                return False
+            return False
+    else:
+        return False
+
+async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool, list, list, list):
+    """Parses the args looking for Discord user, "all", affiliation, rarity and card codes"""
+    user = None
+    has_all = False
+    affiliation_codes = []
+    rarity_codes = []
+    card_codes = []
+
+    # Parse all the arguments
+    for arg in args:
+        # Check if the argument is a user
+        try:
+            converter = commands.MemberConverter()
+            user = await converter.convert(ctx=ctx, argument=arg)
+        # Check if the argument is an affiliation
+        except commands.errors.MemberNotFound:
+            argLowerCase = arg.lower()
+            if argLowerCase == 'all':
+                has_all = True
+            elif argLowerCase in ['v', 'villain', 'villains']:
+                affiliation_codes.append('villain')
+            elif argLowerCase in ['h', 'hero', 'heroes']:
+                affiliation_codes.append('hero')
+            elif argLowerCase in ['n', 'neutral', 'neutrals']:
+                affiliation_codes.append('neutral')
+            elif argLowerCase in ['s', 'starter', 'starters']:
+                rarity_codes.append('S')
+            elif argLowerCase in ['c', 'common']:
+                rarity_codes.append('C')
+            elif argLowerCase in ['u', 'uncommon']:
+                rarity_codes.append('U')
+            elif argLowerCase in ['r', 'rare']:
+                rarity_codes.append('R')
+            elif argLowerCase in ['l', 'legendary']:
+                rarity_codes.append('L')
+            elif is_valid_card_number_format(arg):
+                card_codes.append(arg)
+            else:
+                raise ValueError('Invalid argument: {}'.format(arg))
+
+    if card_codes and (has_all or affiliation_codes or rarity_codes):
+        raise ValueError('Invalid arguments. You can\'t mix card numbers and batch.')
+    elif has_all and (affiliation_codes or rarity_codes):
+        raise ValueError('Invalid arguments. Use either \"all\" or affiliation/rarity name but not both.')
+
+    return user, has_all, affiliation_codes, rarity_codes, card_codes
+
+def parse_amount(amount: str) -> int:
+    """Parses the amount that can be either and integer, or something like "10k", "1.2M", etc..."""
+    amountLowerCase = amount.lower()
+    exp = 0
+    if amountLowerCase.endswith('k'):
+        exp = 3
+    elif amountLowerCase.endswith('m'):
+        exp = 6
+    elif amountLowerCase.endswith('b'):
+        exp = 9
+    elif amountLowerCase.endswith('t'):
+        exp = 12
+    elif amountLowerCase.endswith('q'):
+        exp = 15
+
+    if exp == 0:
+        return int(amount)
+    else:
+        return int(float(amount[:len(amount)-1])*10**exp)
+
+def credits_to_string(amount: int) -> str:
+    letter = ''
+    divider = 1
+    absAmount = abs(amount)
+    if absAmount >= 10**15:
+        letter = 'Q'
+        divider = 10**15
+    elif absAmount >= 10**12:
+        letter = 'T'
+        divider = 10**12
+    elif absAmount >= 10**9:
+        letter = 'B'
+        divider = 10**9
+    elif absAmount >= 10**6:
+        letter = 'M'
+        divider = 10**6
+        
+    if divider == 1:
+        return '{:,} C'.format(int(amount))
+    if amount >= 10**18:
+        return '{:,} {}C'.format(int(amount / divider), letter)
+    else:
+        return '{:.3g} {}C'.format(amount / divider, letter)
