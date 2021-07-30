@@ -712,10 +712,6 @@ class Economy(commands.Cog):
                            helper.get_config('porg_stab_emoji'),
                            helper.get_config('sid_smile_emoji'),
                            helper.get_config('gray_squadron_emoji')]
-        symbol_string = '\n'.join(slot_emoji_list)
-        action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
-        action_list = '\n'.join(['Spin!', 'Cash out current net', 'Previous Machine', 'Next Machine', 'Quit.'])
-        control_string = '\n'.join(action_emoji_list)
         info_emoji_list = ['⬅', '➡', '🛑']
         stop = False
 
@@ -762,21 +758,22 @@ class Economy(commands.Cog):
             info_string = 'Medals'
             rewards_string = ''
             for idx in range(1, 10):
-                reward = selected_rewards.get(idx)
-                rewards_string += f'{reward}\n'
+                rewards_string += '{}: {}\n'.format(slot_emoji_list[idx-1], selected_rewards.get(idx))
             new_embed = discord.Embed(title='Slot Machine Info!', description='Your personal guide to gambling.',
                                       colour=0xFFFF)
             new_embed.add_field(name='Slot Type', value=machine_name, inline=True)
             new_embed.add_field(name='Cost', value=selected_info.get('cost') * selected_info.get('max_spin'),
                                 inline=True)
             new_embed.add_field(name='Major Jackpot', value=selected_info.get('major_jackpot'), inline=True)
-            new_embed.add_field(name='Symbol', value=symbol_string, inline=True)
-            new_embed.add_field(name='Reward', value=rewards_string, inline=True)
+            new_embed.add_field(name='Rewards', value=rewards_string, inline=False)
             new_embed.add_field(name='Bonuses',
                                 value='Any 2 sabers to x2 that spin!\nAny 3 sabers to x5 that spin!\nGet 3 Gray Symbols for JACKPOT!',
                                 inline=False)
-            new_embed.add_field(name='Controls', value=control_string, inline=True)
-            new_embed.add_field(name='Action', value=action_list, inline=True)
+            new_embed.add_field(name='Actions', value='🕹️: Spin!\n' 
+                                                      '💰: Cash out current net\n'
+                                                      '⬅: Previous Machine\n'
+                                                      '➡: Next Machine\n'
+                                                      '🛑: Quit', inline=False)
             new_embed.add_field(name='Future updates to include:', value=info_string, inline=False)
             new_embed.set_footer(text='Help Hotline: 1-800-522-4700')
             return new_embed
