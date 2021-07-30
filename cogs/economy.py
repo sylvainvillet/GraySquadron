@@ -1582,16 +1582,18 @@ class SlotMachine:
                                             UPDATE SET bonus = $2, minor_jackpot = $3, major_jackpot = $4""",
                                          machine_name, *jackpot_list)
 
-    async def cash_out(self, c_amount: int, porg_multi: int, epic: int = 0):
-        """Cashout users current slot position"""
+    def get_current_profit_change(self, c_amount: int, porg_multi: int, epic: int = 0) -> int:
         # final_c_amount = -1 * self.player_credits_total if -1 * c_amount > self.player_credits_total else c_amount
+        profit_change = c_amount
         if c_amount > 0:
             profit_change = c_amount * (1.1 ** porg_multi)
             if epic == 0:
                 profit_change = profit_change * (1+self.bonus/100)
-        else:
-            profit_change = c_amount
-        await self.economy.change_credits(self.author.id, profit_change)
+        return profit_change
+
+    async def cash_out(self, c_amount: int, porg_multi: int, epic: int = 0):
+        """Cashout users current slot position"""
+        await self.economy.change_credits(self.author.id, self.get_current_profit_change(c_amount, porg_multi, epic))
         if self.total_spins > 0:
             await self.post_results()
 
@@ -1697,6 +1699,7 @@ class SlotMachine:
         result_string = f'-- {slot_state} --'
         embed = discord.Embed(title=f'**LVL {self.machine_level} {self.selected_machine_name} x{self.multi}**',
                               description=f'EXP: {self.machine_exp} / {self.next_exp:.0f}'
+                                          f'\nCard Bonus: x{1+self.bonus/100:.2f}'
                                           f'\nMajor Jackpot: {helper.credits_to_string(self.current_jackpot[2])}'
                                           f'\nMinor Jackpot: {helper.credits_to_string(self.current_jackpot[1])}'
                                           f'\nBonus: {helper.credits_to_string(self.current_jackpot[0])}',
@@ -1707,7 +1710,7 @@ class SlotMachine:
         embed.add_field(name='------------------', value=result_string, inline=False)
         embed.add_field(name='Profit', value=f'{helper.credits_to_string(self.profit)}', inline=True)
         embed.add_field(name='Multi', value=porg_string, inline=True)
-        embed.add_field(name='CardBonus', value=f'x{1+self.bonus/100:.2f}', inline=True)
+        embed.add_field(name='Total', value=f'{helper.credits_to_string(self.get_current_profit_change(self.profit, self.porg_multi))}', inline=True)
         embed.add_field(name='Spins', value=str(self.spins_left), inline=True)
         embed.add_field(name='Wallet', value=f'{helper.credits_to_string(self.player_credits_total)}', inline=True)
         embed.set_footer(
