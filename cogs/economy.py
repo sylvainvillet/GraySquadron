@@ -1957,12 +1957,11 @@ class Shop:
                 item_name = item_name.replace('Faction', self.economy.current_faction)
             elif item_name == 'Random Affiliation':
                 item_name = item_name.replace('Affiliation', self.economy.current_affiliation)
-            item_name_list.append(f"{item_dict.get('emoji')} {item_quantity:,}x{item_name}")
-            item_cost_list.append(f"{helper.credits_to_string(item_dict.get('cost'))}")
-            item_code_list.append(f"{item_dict.get('item_code')}")
-        embed.add_field(name='Item', value='\n'.join(item_name_list))
-        embed.add_field(name='Cost', value='\n'.join(item_cost_list))
-        embed.add_field(name='Code', value='\n'.join(item_code_list))
+            embed.add_field(name='{} {}x {} ({})'.format(item_dict.get('emoji'), 
+                                                         item_quantity,
+                                                         item_code,
+                                                         helper.credits_to_string(item_dict.get('cost'))), 
+                            value='{}'.format(item_name), inline=False)
         _, time_left = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK')
         _, time_left_minor = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK_MINOR')
         major_text = 'Restocking' if time_left < datetime.timedelta(0) else str(time_left).split('.')[0]
