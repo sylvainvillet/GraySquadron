@@ -3,3 +3,7 @@
 config.json
 /DEV/logging_example.py
 *.pyc
+/assets/*
+/DEV/*
+/db_queries/*
+/test.py
