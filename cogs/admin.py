@@ -162,7 +162,7 @@ class Admin(commands.Cog):
     async def update_member_nick(self, ctx, member: discord.Member = None):
         """Manual prefix update on nickname"""
         prefix, fo_num = '', ''
-        if ctx is not None:
+        if member is None:
             member = ctx.author
         member_roles = member.roles
         guild_roles = member.guild.roles
@@ -194,14 +194,14 @@ class Admin(commands.Cog):
             await bot_commands_channel.send(
                 f'Nickname for {member.display_name} is too long at {len(after_nick)} characters!')
         else:
-            await member.edit(nick=after_nick)
+            try:
+                await member.edit(nick=after_nick)
+            except:
+                print('Error in update_nick for member:', member.display_name)
 
     @commands.command()
-    @commands.has_role('Active')
-    @commands.has_any_role('Droid Engineer', 'Commander', 'Captain', 'Lieutenant', 'Flight Officer')
-    async def claim(self, ctx, new_fo: int):
-        """Claim a FO #"""
-        user_id = ctx.author.id
+    @commands.has_any_role('Droid Engineer', 'Commander', 'Captain', 'Lieutenant')
+    async def set_fo(self, ctx, user: discord.Member, new_fo: int):
         general_channel = discord.utils.get(ctx.guild.text_channels, name='general')
         previous_id = await helper.get_roster(self, 'discord_uid', new_fo)
         if new_fo == 420:
@@ -209,24 +209,37 @@ class Admin(commands.Cog):
         else:
             if previous_id == 0:
                 # Remove other claims of FO before assignment
-                prev_fo = await helper.get_roster(self, 'fo', user_id)
+                prev_fo = await helper.get_roster(self, 'fo', user.id)
                 if prev_fo is not None:
                     await helper.set_fo(self, prev_fo, 0)
-                    await general_channel.send(f'FO {prev_fo} has opened up!')
+                    await general_channel.send(f'Number {prev_fo} has opened up!')
                 # Claim FO
-                await helper.set_fo(self, new_fo, user_id)
-                await general_channel.send(f'{ctx.author.mention} has claimed FO {new_fo}!')
-                await self.update_member_nick(ctx)
+                await helper.set_fo(self, new_fo, user.id)
+                if user.id == ctx.author.id:
+                    await general_channel.send(f'{user.mention} has claimed number {new_fo}!')
+                else:
+                    await ctx.send(f'Number {new_fo} assigned to {user.mention}')
+                await self.update_member_nick(ctx, user)
                 await self.update_roster()
-            elif previous_id == user_id:
-                await ctx.send(f'{ctx.author.mention}, you already own FO {new_fo}!')
+            elif previous_id == user.id:
+                if user.id == ctx.author.id:
+                    await ctx.send(f'{user.mention}, you already own number {new_fo}!')
+                else:
+                    await ctx.send(f'{user.mention} already owns number {new_fo}!')
             elif previous_id is None:
-                await ctx.send(f'That is not a registered FO number!')
+                await ctx.send(f'That is not a registered number!')
             elif previous_id != 0:
                 previous_member = ctx.guild.get_member(previous_id)
-                await ctx.send(f'FO {new_fo} is already claimed by {previous_member.nick}!')
+                await ctx.send(f'Number {new_fo} is already assigned to {previous_member.nick}!')
             else:
                 await ctx.send(f'You found a bug in the claim command!')
+
+    @commands.command()
+    @commands.has_role('Active')
+    @commands.has_any_role('Droid Engineer', 'Commander', 'Captain', 'Lieutenant', 'Flight Officer')
+    async def claim(self, ctx, new_fo: int):
+        """Claim a FO #"""
+        await self.set_fo(ctx, ctx.author, new_fo)
 
     @claim.error
     async def claim_error(self, ctx, error):
@@ -497,7 +510,7 @@ class Admin(commands.Cog):
             print(error)
 
     @commands.command()
-    @commands.has_any_role('Droid Engineer', 'Cdt')
+    @commands.has_any_role('Droid Engineer', 'Cadet')
     async def get_mentor(self, ctx, mentee: discord.Member = None):
         """Get mentor for self or specified user"""
         if mentee is None:

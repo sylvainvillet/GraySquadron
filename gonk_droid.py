@@ -35,13 +35,13 @@ client = commands.Bot(command_prefix='$', description=description, intents=inten
 @client.event
 async def on_ready():
     """Startup Messages"""
-    print('------')
-    print(f'Logged in as {client.user.name}')
-    print(f'Discord.py API version: {discord.__version__}')
-    print(f'Python version: {platform.python_version()}')
-    print(f'Interpretor: {sys.executable}')
-    print(f'Running on: {platform.system()} {platform.release()} ({os.name})')
-    print('------')
+    await helper.bot_log(client, '------'
+                f'\nLogged in as {client.user.name}'
+                f'\nDiscord.py API version: {discord.__version__}'
+                f'\nPython version: {platform.python_version()}'
+                f'\nInterpretor: {sys.executable}'
+                f'\nRunning on: {platform.system()} {platform.release()} ({os.name})'
+                '\n------')
     activity = discord.Activity(name='Jizz Droid', type=discord.ActivityType.listening)
     await client.change_presence(status=discord.Status.online, activity=activity)
     await load_all()
@@ -117,7 +117,7 @@ async def load_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send('Missing target cog parameter')
     else:
-        print(error)
+        await helper.bot_log(client, error)
 
 
 @client.command()
@@ -149,7 +149,7 @@ async def unload_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send('Missing target cog parameter')
     else:
-        print(error)
+        await helper.bot_log(client, error)
 
 
 @client.command()
@@ -183,7 +183,7 @@ async def reload_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send('Missing target cog parameter')
     else:
-        print(error)
+        await helper.bot_log(client, error)
 # endregion
 
 

@@ -13,6 +13,7 @@ from utils import helper
 
 
 class Economy(commands.Cog):
+    card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
     def __init__(self, client):
         self.client = client
@@ -22,12 +23,12 @@ class Economy(commands.Cog):
 
         self.credit_msg_reward = 100
         self.lotto_cost = 5
+        
 
         self.bot_discord_uid = helper.get_config('bot_discord_uid')
 
         # SW Card DB
         self.affiliation_list = ['Villain', 'Neutral', 'Hero']
-        self.affiliation_codes_list = ['villain', 'neutral', 'hero']
         self.faction_list = ['Command', 'Force', 'Rogue', 'General']
         self.set_list = ['Legacies', 'Redemption', 'Spirit of Rebellion']
         self.card_rate_list = [0.45, 0.4, 0.14, 0.0099, 0.0001]
@@ -38,11 +39,6 @@ class Economy(commands.Cog):
         self.card_rarity_value = {'S': 4000, 'C': 15000, 'U': 80000, 'R': 400000, 'L': 5000000}
         self.card_pack_type_dict = {'cpa': 'affiliation_name', 'cpf': 'faction_name', 'cps': 'set_name'}
 
-        # Hardcoded stats about the card's deck to avoid unneeded SQL requests. To update if new cards are added
-        self.card_count = 1889
-        self.card_affiliation_count = {'hero': 615, 'neutral': 663, 'villain': 611}
-        self.card_rarity_count = {'S': 449, 'C': 513, 'U': 387, 'R': 387, 'L': 153}
-        
         self.current_affiliation = random.choice(self.affiliation_list)
         self.current_faction = random.choice(self.faction_list)
         self.current_set = random.choice(self.set_list)
@@ -189,16 +185,15 @@ class Economy(commands.Cog):
                                             UPDATE SET count = user_deck.count + $3""",
                                              discord_uid, item_code, quantity, current_time)
 
-    async def open_cardpack(self, item_code: str, quantity: int) -> (list, list):
+    async def open_cardpack(self, item_code: str, quantity: int) -> (list, str):
         """Open random cardpacks"""
 
-        async def get_cards(f_base_string, f_rarity, f_quantity) -> (list, list):
+        async def get_cards(f_base_string, f_rarity, f_quantity):
             async with self.client.pool.acquire() as f_connection:
                 async with f_connection.transaction():
-                    cards_record = await f_connection.fetch(f_base_string, f_rarity, f_quantity)
-            return [code[0] for code in cards_record], [code[1] for code in cards_record]
+                    return await f_connection.fetch(f_base_string, f_rarity, f_quantity)
 
-        base_string = """SELECT code, name  FROM gray.sw_card_db WHERE rarity_code = $1"""
+        base_string = """SELECT code, name, affiliation_name FROM gray.sw_card_db WHERE rarity_code = $1"""
         rarity = ''
         if item_code in self.item_code_card_rarity_dict.keys():
             rarity = self.item_code_card_rarity_dict.get(item_code)
@@ -222,18 +217,18 @@ class Economy(commands.Cog):
             base_string += f" AND {col_name} = '{col_value}'"
         base_string += ' ORDER BY RANDOM() LIMIT $2'
 
-        card_codes, card_names = await get_cards(base_string, rarity, quantity)
+        card_records = await get_cards(base_string, rarity, quantity)
 
         # If not enough cards, try all the rarity from S to L until we have enough cards
-        if len(card_codes) != quantity:
+        if len(card_records) != quantity:
             for new_rarity in self.card_rarity_list:
-                new_card_codes, new_card_names = await get_cards(base_string, new_rarity, quantity - len(card_codes))
-                card_codes.extend(new_card_codes)
-                card_names.extend(new_card_names)
-                if len(card_codes) == quantity:
+                new_card_records = await get_cards(base_string, new_rarity, quantity - len(card_records))
+                rarity = new_rarity
+                card_records.extend(new_card_records)
+                if len(card_records) == quantity:
                     break;
 
-        return card_codes, card_names
+        return card_records, rarity
 
     @staticmethod
     def credits_tier(credits_total: int):
@@ -298,7 +293,7 @@ class Economy(commands.Cog):
             bracket = 'silver5'
         elif credits_total < 24_414_062_500:
             bracket = 'silver6'
-        elif credits_total < 122_070_312_500:
+        else:
             bracket = 'silver7'
         img_link = coin_tier.get(bracket)[0]
         tax_rate = coin_tier.get(bracket)[1]
@@ -307,7 +302,7 @@ class Economy(commands.Cog):
     # Events
     @commands.Cog.listener()
     async def on_ready(self):
-        print('Cog is online.')
+        await helper.bot_log(self.client, 'Cog is online.')
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -330,7 +325,7 @@ class Economy(commands.Cog):
         """Information on game"""
         rules = 'Competitive seasonal play where ranking is determined by final Galactic Imperial Points!' \
                 '\nPrizes: 1st - $20, 2nd - $10, 3rd - $5'
-        start = f'Send a message with the keyword "HOPE" in chat for {self.credit_msg_reward} credits every 30 mins from the Rebel Alliance!' \
+        start = f'Send a message with the keyword "HOPE" in chat for {helper.credits_to_string(self.credit_msg_reward)} every 30 mins from the Rebel Alliance!' \
                 '\nCheck out the other game commands with $help Economy'
         road_map = 'Inventory\nRPGAdventure'
         embed = discord.Embed(title='Game?', description='*Season 1: The Beginning*')
@@ -382,7 +377,7 @@ class Economy(commands.Cog):
             await ctx.send(embed=embed)
 
         else:
-            await ctx.send(f'Sorry, a credit lotto combo-pack costs {self.lotto_cost} C.', delete_after=15)
+            await ctx.send(f'Sorry, a credit lotto combo-pack costs {helper.credits_to_string(self.lotto_cost)}.', delete_after=15)
 
     @commands.command()
     async def bal(self, ctx, user: discord.Member = None):
@@ -399,10 +394,11 @@ class Economy(commands.Cog):
         embed = discord.Embed(title=f"{tax_bracket_string} Wallet", colour=ctx.author.colour)
         embed.set_author(name=user.display_name, icon_url=user.avatar_url)
         embed.set_thumbnail(url=img_link)
-        embed.add_field(name='Wallet', value=f'{credit_total:,} C'
-                        f'\nTax Rate: {tax_rate * 100:.1f}%', inline=False)
-        embed.add_field(name='Deck value', value=f'{deck_value:,} C', inline=False)
-        embed.add_field(name='Total', value=f'{(deck_value + credit_total):,} C', inline=False)
+        embed.add_field(name='Wallet', value='{}\nTax Rate: {:.1f}%'.format(
+                                              helper.credits_to_string_with_exact_value(credit_total, '\n'),
+                                              tax_rate * 100), inline=False)
+        embed.add_field(name='Deck value', value=helper.credits_to_string_with_exact_value(deck_value, '\n'), inline=False)
+        embed.add_field(name='Total', value=helper.credits_to_string_with_exact_value(deck_value + credit_total, '\n'), inline=False)
         # TODO: Stats on wallet growth
         await ctx.send(embed=embed)
 
@@ -439,7 +435,7 @@ class Economy(commands.Cog):
                     _, _, tax_rate = self.credits_tier(giver_total)
                     give_count = math.ceil(count * (1 - tax_rate)) - 5
                     tax_count = count - give_count
-                    message = f'{ctx.author.mention} have gifted {member.mention} {helper.credits_to_string(count)}! '
+                    message = f'{ctx.author.mention} has gifted {member.mention} {helper.credits_to_string_with_exact_value(count)}! '
                     if reason is not None:
                         message += f'\nMemo: {reason}'
                     message += f'\n{helper.credits_to_string(tax_count)} were withheld for handling fees.'
@@ -448,18 +444,18 @@ class Economy(commands.Cog):
                     await self.change_credits(taker, give_count)
                     await self.change_credits(self.bot_discord_uid, tax_count)
                 else:
-                    await ctx.send(f'You only have {giver_total} credits!')
+                    await ctx.send(f'Transfer failed. You only have {helper.credits_to_string_with_exact_value(giver_total)}!')
             else:
                 await ctx.send(f'The flat transaction fee is 5 C!', delete_after=10)
 
     @transfer.error
     async def transfer_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send('How many credits are you transferring?', delete_after=10)
+            await ctx.send('Please specify the amount to transfer.\nType "$help transfer" for more info.', delete_after=10)
         elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send('You are limited to 1 transfer per 30 seconds!', delete_after=5)
+            await ctx.send('You are limited to 1 transfer per 5 seconds!', delete_after=5)
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command()
     async def lb(self, ctx):
@@ -483,12 +479,18 @@ class Economy(commands.Cog):
         await menu.start(ctx)
         await ctx.message.delete()
 
+    @lb.error
+    async def lb_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
     async def duel(self, ctx, opponent: discord.Member, amount: str):
         """Duel a specific user for x credits
         Usage:
         $duel @user amount
+
+        Minimum amount is 100 C.
 
         Example:
         $duel @user 500
@@ -497,6 +499,10 @@ class Economy(commands.Cog):
         wager = 0
         try:
             wager = helper.parse_amount(amount)
+            if wager < 100:
+                await ctx.send('Invalid argument: Minimum amount is {}!'.format(helper.credits_to_string(100)))
+                return
+
         except ValueError:
             await ctx.send('Invalid argument: {}\nType "$help duel" for more info.'.format(amount))
             return
@@ -621,7 +627,7 @@ class Economy(commands.Cog):
                     await self.change_credits(ctx.author.id, (-1 * wager))
                     await self.change_credits(opponent.id, (-1 * wager) + (2 * prize))
                 else:
-                    print('This is not in the result matrix.')
+                    await helper.bot_log(self.client, 'This is not in the result matrix.')
                 await self.change_credits(self.bot_discord_uid, (2 * tax))
                 coin_string1 = f'{one_name}\n{two_name}'
                 coin_string2 = f'{helper.credits_to_string(one_credits_total)} > {helper.credits_to_string(one_credits_total - wager)} -> {helper.credits_to_string(await self.get_credits(ctx.author.id))}' \
@@ -647,7 +653,7 @@ class Economy(commands.Cog):
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send('You can only initiate a duel once every 30 seconds!', delete_after=5)
         else:
-            print(error)
+            await helper.bot_log(self.economy.client, error)
 
     @commands.command(aliases=['slot_stat'])
     @commands.has_any_role('Droid Engineer')
@@ -683,7 +689,7 @@ class Economy(commands.Cog):
         if isinstance(error, commands.MissingAnyRole):
             await ctx.send('You do not have access to this intel.')
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['s', 'slots'])
     # @commands.has_any_role('Droid Engineer')
@@ -698,7 +704,7 @@ class Economy(commands.Cog):
         if isinstance(error, commands.CommandOnCooldown):
             await ctx.send('You can only play the slots once every 30 seconds!', delete_after=5)
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['slots_info'])
     async def slot_info(self, ctx):
@@ -816,11 +822,19 @@ class Economy(commands.Cog):
         await asyncio.sleep(30)
         await sent_embed.delete()
 
+    @slot_info.error
+    async def slot_info_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command()
     async def shop(self, ctx):
         """Khajit has wares if you have coin"""
         shop = Shop(self, ctx)
         await shop.run()
+
+    @shop.error
+    async def shop_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command()
     # @commands.has_any_role('Droid Engineer')
@@ -859,6 +873,9 @@ class Economy(commands.Cog):
             item_code_list.append(item_command)
 
         messages = []
+        card_codes = []
+        purchase_dict = {}
+        bonus_dict = {'Hero': 0, 'Neutral': 0, 'Villain': 0}
         for item_code in item_code_list:
             # Validate user quantity is a positive number
             if quantity < 1:
@@ -896,67 +913,130 @@ class Economy(commands.Cog):
                 if quantity == 0:
                     if quantity_bought == 0:
                         await ctx.send('Sorry, you do not have enough credits for this purchase!')
+                        return
                     else:
-                        await ctx.send('{}\n{}'.format('\n'.join(messages), 
-                            f'You have bought {quantity_bought} card(s) but you do not have enough credits to buy all the cards requested.'))
-                    return
+                        break
                 total_cost = item_cost * quantity
 
             _, _, tax_rate = self.credits_tier(user_credit_total)
-            try:
-                # Update item quantity
-                quantity_bought += quantity
-                await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
-                item_category, item_subcategory = await self.get_item_category(item_code)
-                if item_category == 'deck':
-                    cards_list, names_list = await self.open_cardpack(item_code, quantity)
-                    for card_code in cards_list:
-                        await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
 
-                    item_name = ''
-                    if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
-                        item_name = self.item_code_card_rarity_name_dict[item_code]
-                    elif item_code == 'cpa':
-                        item_name = self.current_affiliation
-                    elif item_code == 'cpf':
-                        item_name = self.current_faction
-                    elif item_code == 'cps':
-                        item_name = self.current_set
+            # Update item quantity
+            quantity_bought += quantity
+            await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
+            item_category, item_subcategory = await self.get_item_category(item_code)
+            if item_category == 'deck':
+                card_records, rarity = await self.open_cardpack(item_code, quantity)
+                for card in card_records:
+                    await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card['code'], 1)
+                    card_codes.append(card['code'])
+                    bonus_dict[card['affiliation_name']] += Economy.card_bonus_dict.get(rarity)
 
-                    messages.append('{} cards revealed:\n- {}'.format(item_name, helper.join_with_and('{} ({})'.format(name, code) for code, name in zip(cards_list, names_list))))
-            except Exception as e:
-                print(e)
-                return
-            else:
-                # Update credits balances
-                tax_amount = math.floor(total_cost * tax_rate)
-                await self.change_credits(discord_uid, -1 * total_cost)
-                await self.change_credits(self.bot_discord_uid, tax_amount)
-                # TODO: Embed to display what was bought
-                # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
-                # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
-                # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+                item_name = ''
+                if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
+                    item_name = self.item_code_card_rarity_name_dict[item_code]
+                elif item_code == 'cpa':
+                    item_name = self.current_affiliation
+                elif item_code == 'cpf':
+                    item_name = self.current_faction
+                elif item_code == 'cps':
+                    item_name = self.current_set
+
+                purchase_dict[item_code] = {'count': quantity, 'rarity_code': rarity, 'item_cost': item_cost}
+
+            # Update credits balances
+            tax_amount = math.floor(total_cost * tax_rate)
+            await self.change_credits(discord_uid, -1 * total_cost)
+            await self.change_credits(self.bot_discord_uid, tax_amount)
+            # TODO: Embed to display what was bought
+            # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
+            # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
+            # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+
+        embed = None
         if quantity_bought > 0:
-            messages.append('Transaction successful! For more details about cards, use \"$deck <card_code(s)>\".')
+            async with self.client.pool.acquire() as connection:
+                async with connection.transaction():
+                    emoji_record = await connection.fetch("SELECT item_code, emoji FROM gray.shop_items ORDER BY item_idx ASC")
+            items_list_string = ''
+            emoji_dict = helper.record_to_dict(emoji_record, 'item_code')
+
+            total_cost = 0  
+            total_value = 0          
+            for item in purchase_dict:
+                total_cost += purchase_dict.get(item).get('count') * purchase_dict.get(item).get('item_cost')
+                total_value += purchase_dict.get(item).get('count') * self.card_rarity_value.get(purchase_dict.get(item).get('rarity_code'))
+
+            bonus_strings = []
+            for bonus in bonus_dict:
+                if bonus_dict.get(bonus) > 0:
+                    bonus_strings += ['+{:.2f}x on {} slots.'.format(bonus_dict.get(bonus) / 100, bonus)]
+
+            embed = discord.Embed(title='Thanks for your purchase!', description='You have bought {} {}.'.format(quantity_bought, 'cards' if quantity_bought != 1 else 'card'), 
+                colour=ctx.author.colour, inline=False)
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar_url)
+            for item in purchase_dict:
+                item_cost = purchase_dict.get(item).get('item_cost')
+                count = purchase_dict.get(item).get('count')
+                embed.add_field(name='{} {}x {} ({})'.format(emoji_dict.get(item).get('emoji'), 
+                                                         count,
+                                                         item,
+                                                         helper.credits_to_string(item_cost)), 
+                            value='{}'.format(helper.credits_to_string(count * item_cost)), inline=False)
+            embed.add_field(name='Total cost', value=helper.credits_to_string(total_cost), inline=True)
+            embed.add_field(name='Value', value=helper.credits_to_string(total_value), inline=True)
+            embed.add_field(name='Wallet', value=helper.credits_to_string(await self.get_credits(ctx.author.id)), inline=True)
+            embed.add_field(name='Bonus', value='\n'.join(bonus_strings), inline=False)
+            embed.set_footer(text='Hint: Click "👁" to see your new {}.'.format('cards' if quantity_bought != 1 else 'card'))
         else:
-            messages.append('Nothing to buy!')
-        await ctx.send('\n'.join(messages))
+            await ctx.send('Nothing to buy!')
+            return
+
+        if quantity_bought > 0:
+            sent_embed = await ctx.send(embed=embed)
+            await sent_embed.add_reaction('👁')
+
+            async def buy_reaction_waiter(self) -> str:
+                """Async helper to await for reactions"""
+
+                def check(r, u):
+                    # R = Reaction, U = User
+                    return u == ctx.author \
+                           and str(r.emoji) == '👁' \
+                           and r.message.id == sent_embed.id
+                try:
+                    reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
+                except asyncio.TimeoutError:
+                    return 'Timeout'
+                return str(reaction.emoji)
+
+            user_input = await buy_reaction_waiter(self)
+            await sent_embed.clear_reactions()
+            if user_input == '👁':
+                deck = Deck(self, ctx, ctx.author, [], [], card_codes, False, 'rarity_code')
+                await deck.run()
 
     @buy.error
     async def buy_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send('You must provide the item code! Browse item codes using $shop', delete_after=10)
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['card', 'cards'])
     async def deck(self, ctx, *args):
         """Displays your collection of cards, or the one from another user.
 
-        You can use various arguments to filter the deck by affiliation and/or faction,
+        You can use various arguments to group and filter the deck by rarity, affiliation, faction of set
         and you can use the "missing" argument to see card you don't own.
         
         Arguments:
+        Group by:
+        - a, affiliation, affiliations: Group by affiliation, default is by Set
+        - f, faction, factions: Group by faction, default is by Set
+        - rar, rarity, rarities: Group by rarity, default is by Set
+        - nogroup, nogroups: Every cards in one list, no groups
+
+        Filters:
         - h, hero, heroes: Affiliation filter for hero cards
         - n, neutral, neutrals: Affiliation filter for neutral cards
         - v, villain, villains: Affiliation filter for villain cards
@@ -966,6 +1046,8 @@ class Economy(commands.Cog):
         - r, rare: Rarity filter for rare cards
         - l, legendary: Rarity filter for legendary cards
         - Card codes: One or multiple card numbers seperated by a space
+
+        Misc:
         - missing: Shows the cards you don't own, can be combined with filters
 
         Examples:
@@ -994,24 +1076,30 @@ class Economy(commands.Cog):
         Shows all the cards you don't own
 
         - $deck missing v l
-        Shows all the villains legendary cards you don't own"""
+        Shows all the villains legendary cards you don't own
+
+        - $deck rar n
+        Shows all your neutral cards grouped by rarity
+
+        - $deck nogroup v l
+        Shows all your villains legendary cards in one list"""
         missing = False
         try:
             if 'missing' in args:
                 missing = True
-            user, _, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
+            user, _, group_by_key, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
         except ValueError as err:
             await ctx.send('{}\nType "$help deck" for more info.'.format(err))
 
-        if missing and card_codes:
-            await ctx.send('Invalid arguments. You can\'t use both "missing" and card codes at the same time.\nType "$help request_card" for more info.')
-            return
-        else:
-            if user is None:
-                user = ctx.author
+        if user is None:
+            user = ctx.author
 
-            user_deck = Deck(self, ctx, user, affiliation_codes, rarity_codes, card_codes, missing)
-            await user_deck.run()
+        user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing, group_by_key)
+        await user_deck.run()
+
+    @deck.error
+    async def deck_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['deck_stat'])
     async def deck_stats(self, ctx, user: discord.Member = None):
@@ -1019,53 +1107,12 @@ class Economy(commands.Cog):
         if user is None:
             user = ctx.author
 
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                user_deck_record = await connection.fetch(
-                    """SELECT deck.code, deck.count, cards_db.affiliation_code, cards_db.rarity_code FROM gray.user_deck AS deck 
-                    INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
-                    WHERE deck.discord_uid = $1 AND deck.count > 0""",
-                    user.id)
+        deck_stats = DeckStats(self, ctx, user)
+        await deck_stats.run()    
 
-                total_cards = 0
-                unique_cards = 0
-                deck_value = 0
-                total_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
-                unique_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
-                total_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
-                unique_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
-
-                for card in user_deck_record:
-                    total_cards += card['count']
-                    unique_cards += 1
-                    total_rarity_dict[card['rarity_code']] += card['count']
-                    unique_rarity_dict[card['rarity_code']] += 1
-                    total_affiliation_dict[card['affiliation_code']] += card['count']
-                    unique_affiliation_dict[card['affiliation_code']] += 1
-                    deck_value += self.card_rarity_value[card['rarity_code']] * card['count']
-
-                embed = discord.Embed(title='Deck Stats', description='')
-                embed.set_author(name=user.display_name, icon_url=user.avatar_url)
-                embed.add_field(name='Total cards', value=total_cards)
-                embed.add_field(name='Completion', value='{}/{}'.format(unique_cards, self.card_count))
-                embed.add_field(name='Value', value=f'{helper.credits_to_string(deck_value)}', inline=False)
-                embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
-                                                           'Neutrals: {} ({}/{})\n'
-                                                           'Villains: {} ({}/{})\n'
-                    .format(total_affiliation_dict['hero'], unique_affiliation_dict['hero'], self.card_affiliation_count['hero'],
-                    total_affiliation_dict['neutral'], unique_affiliation_dict['neutral'], self.card_affiliation_count['neutral'],
-                    total_affiliation_dict['villain'], unique_affiliation_dict['villain'], self.card_affiliation_count['villain']), inline=False)
-                embed.add_field(name='Rarity', value='Starters: {} ({}/{})\n'
-                                                     'Common: {} ({}/{})\n'
-                                                     'Uncommon: {} ({}/{})\n'
-                                                     'Rare: {} ({}/{})\n'
-                                                     'Legendary: {} ({}/{})'
-                    .format(total_rarity_dict['S'], unique_rarity_dict['S'], self.card_rarity_count['S'],
-                        total_rarity_dict['C'], unique_rarity_dict['C'], self.card_rarity_count['C'],
-                        total_rarity_dict['U'], unique_rarity_dict['U'], self.card_rarity_count['U'],
-                        total_rarity_dict['R'], unique_rarity_dict['R'], self.card_rarity_count['R'],
-                        total_rarity_dict['L'], unique_rarity_dict['L'], self.card_rarity_count['L']), inline=False)
-                await ctx.send(embed=embed)
+    @deck_stats.error
+    async def deck_stats_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)    
 
     @commands.command(aliases=['request_cards', 'transfer_card', 'transfer_cards'])
     async def request_card(self, ctx, *args):
@@ -1108,14 +1155,14 @@ class Economy(commands.Cog):
         Requests 01001 and 01002 from user"""
 
         try:
-            user, request_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+            user, request_all, _, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
         except ValueError as err:
             await ctx.send('{}\nType "$help request_card" for more info.'.format(err))
             return
         if user is None:
             await ctx.send('Invalid arguments. You must specify a user.\nType "$help request_card" for more info.')
             return
-        elif not (request_all or affiliation_codes or rarity_codes or card_codes):
+        elif not (request_all or affiliation_names or rarity_codes or card_codes):
             await ctx.send('Invalid arguments. You must specify something to request.\nType "$help request_card" for more info.')
             return
 
@@ -1133,9 +1180,9 @@ class Economy(commands.Cog):
                             """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
                             INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                             WHERE deck.discord_uid = $1 AND count > 0 AND 
-                            cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                            cards_db.affiliation_name = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
                             user.id,
-                            affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                            affiliation_names if affiliation_names else self.affiliation_list, 
                             rarity_codes if rarity_codes else self.card_rarity_list)
 
         cards_records = await fetch_cards_records()
@@ -1172,17 +1219,30 @@ class Economy(commands.Cog):
 
             async def request_card_helper() -> str:
                 msg = None
+                affiliations_string = helper.join_with_or(affiliation_names)
+                rarities_string = helper.join_with_or([self.card_rarity_name_dict[rarity_code] for rarity_code in rarity_codes])
                 if request_all:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your cards ({total_card_quantity} cards)')
-                elif affiliation_codes and rarity_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {self.card_rarity_name_dict[rarity_codes].lower()} {affiliation_codes} cards ({total_card_quantity} cards)')
-                elif affiliation_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {affiliation_codes} cards ({total_card_quantity} cards)')
+                    msg = await user.send('{} is requesting all your cards ({} cards)'.format(ctx.author.display_name, total_card_quantity))
+                elif affiliation_names and rarity_codes:
+                    msg = await user.send('{} is requesting all your cards from rarity {} and affiliation {} ({} cards)'
+                        .format(ctx.author.display_name, 
+                            rarities_string,
+                            affiliations_string,
+                            total_card_quantity))
+                elif affiliation_names:
+                    msg = await user.send('{} is requesting all your cards from affiliation {} ({} cards)'
+                        .format(ctx.author.display_name,
+                            affiliations_string,
+                            total_card_quantity))
                 elif rarity_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {rarity_codes} cards ({total_card_quantity} cards)')
+                    msg = await user.send('{} is requesting all your cards from rarity {} ({} cards)'
+                        .format(ctx.author.display_name,
+                            rarities_string,
+                            total_card_quantity))
                 elif card_codes:
-                    msg = await user.send('{} is requesting card(s): {}'.format(ctx.author.display_name, helper.join_with_and('{} ({}{})'.format(
-                        card['name'], 
+                    msg = await user.send('{} is requesting card(s): {}'
+                        .format(ctx.author.display_name, 
+                            helper.join_with_and('{} ({}{})'.format(card['name'], 
                         '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
                         card['code']) for card in cards_records)))
                 for emoji in trade_emojis:
@@ -1222,6 +1282,10 @@ class Economy(commands.Cog):
                     await ctx.send(f'{user.mention} has traded {total_cards_sent} cards to {ctx.author.mention}!')
             else:
                 await ctx.send(f'{user.mention} has rejected the request.')
+
+    @request_card.error
+    async def request_card_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['send_cards'])
     async def send_card(self, ctx, *args):
@@ -1264,7 +1328,7 @@ class Economy(commands.Cog):
         Sends 01001 and 01002 to user"""
 
         try:
-            user, send_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+            user, send_all, _, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
         except ValueError as err:
             await ctx.send('{}\nType "$help send_card deck" for more info.'.format(err))
             return
@@ -1286,9 +1350,9 @@ class Economy(commands.Cog):
                         """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
                         INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                         WHERE deck.discord_uid = $1 AND count > 0 AND 
-                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        cards_db.affiliation_name = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
                         ctx.author.id, 
-                        affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                        affiliation_names if affiliation_names else self.affiliation_list, 
                         rarity_codes if rarity_codes else self.card_rarity_list)
 
                 if not cards_records:
@@ -1328,6 +1392,10 @@ class Economy(commands.Cog):
                     else:
                         await ctx.send(f'{ctx.author.mention} has sent {total_cards_sent} cards to {user.mention}!')
 
+    @send_card.error
+    async def send_card_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command(aliases=['who_has'])
     async def who_has_card(self, ctx, card_code: str):
         """List the members who have the specified card in their deck.
@@ -1352,11 +1420,15 @@ class Economy(commands.Cog):
                     user_quantity_strings = []
                     for entry in uid_count_record:
                         member = await ctx.guild.fetch_member(entry['discord_uid'])
-                        user_quantity_strings.append('{} ({}x)'.format(member, entry['count']))
+                        user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
                     if len(user_quantity_strings) == 1:
                         await ctx.send('{} has the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
                     else:
                         await ctx.send('{} have the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
+
+    @who_has_card.error
+    async def who_has_card_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     # Background Tasks
     @tasks.loop(seconds=600, reconnect=True)
@@ -1437,7 +1509,6 @@ class SlotMachine:
     state_list = [['SLOT IDLE', 0x000000], ['YOU LOST', 0xFF0800], ['SPINNING', 0xFFF700],
                   ['YOU WIN', 0x2EFF00], ['CLOSED', 0x000000]]
     action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
-    card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
     def __init__(self, economy, ctx):
         self.economy = economy
@@ -1740,7 +1811,7 @@ class SlotMachine:
                                                                 WHERE discord_uid = $1 ORDER BY "timestamp" DESC LIMIT 1""", self.author.id)
 
         def bonus_val(row):
-            val = SlotMachine.card_bonus_dict.get(row['rarity_code'])
+            val = Economy.card_bonus_dict.get(row['rarity_code'])
             return val
 
         bonus_data = pd.DataFrame(data, columns=columns)
@@ -1755,9 +1826,15 @@ class SlotMachine:
         self.machine_type_names = cycle(list(self.machine_info_dict.keys()))
 
         # Set the iterator to the selected position
-        while self.selected_machine_name != next(self.machine_type_names):
-            pass
-        
+        machine_found = False
+        for i in range(0, self.machine_count):
+            if self.selected_machine_name == next(self.machine_type_names):
+                machine_found = True
+                break
+
+        if not machine_found:
+            self.selected_machine_name = next(self.machine_type_names)
+
         await self.setup_selected_machine()
         self.player_credits_total = await self.economy.get_credits(self.author.id)
         self.sent_embed = await self.ctx.send(embed=await self.generate_slot_embed())
@@ -1909,8 +1986,9 @@ class Shop:
         self.category_index = self.shop_category_list.index(self.selected_shop_category)
         self.selected_shop_dict = self.shop_dict.get(self.selected_shop_category)
         self.sent_embed = await self.ctx.send(embed=await self.generate_shop_embed())
-        for e in Shop.action_emoji_list:
-            await self.sent_embed.add_reaction(e)
+        if self.categories_max > 1:
+            for e in Shop.action_emoji_list:
+                await self.sent_embed.add_reaction(e)
 
     async def next_category(self, distance: int = 1):
         for _ in range(0, distance):
@@ -1962,6 +2040,7 @@ class Shop:
                                                          item_code,
                                                          helper.credits_to_string(item_dict.get('cost'))), 
                             value='{}'.format(item_name), inline=False)
+        embed.add_field(name='Wallet', value=helper.credits_to_string(await self.economy.get_credits(self.author.id)))
         _, time_left = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK')
         _, time_left_minor = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK_MINOR')
         major_text = 'Restocking' if time_left < datetime.timedelta(0) else str(time_left).split('.')[0]
@@ -2010,9 +2089,9 @@ class Shop:
 class Deck:
     deck_action_emoji_list = ['⏪', '◀', '⬆', '👁', '⬇', '▶', '⏩', '🛑']
     card_action_emoji_list = ['↩', '◀', '▶', '🛑']
-    card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
+    group_by_key_name_dict = {'affiliation_name': 'Affiliation', 'faction_name': 'Faction', 'rarity_code': 'Rarity', 'set_code': 'Set'}
 
-    def __init__(self, economy, ctx, user: discord.Member, affiliation_codes: list, rarity_codes: list, card_codes: list, missing: bool):
+    def __init__(self, economy, ctx, user: discord.Member, affiliation_names: list, rarity_codes: list, card_codes: list, missing: bool, group_by_key: str):
         self.empty = False  # If the users deck is completely empty
         self.is_card = False
 
@@ -2020,21 +2099,22 @@ class Deck:
         self.ctx = ctx
         self.author = ctx.author
         self.target = user
-        self.affiliation_codes = affiliation_codes
+        self.affiliation_names = affiliation_names
         self.rarity_codes = rarity_codes
         self.card_codes = card_codes
         self.missing = missing
+        self.group_by_key = group_by_key
 
         self.user_deck_dict = {}  # gray.user_deck
         self.db_select_dict = {}  # gray.sw_card_db
-        self.set_list = []  # Alphabetically sorted set list
+        self.group_list = []  # Alphabetically sorted group list
 
-        self.current_set_idx = 0
-        self.current_set_dict = {}  # Dictionary that holds all cards of current set
-        self.current_set_name = None
-        self.current_set_code = None  # Code of current set
-        self.current_set_page_idx = 0  # Index of page of current set
-        self.current_set_max_page = 0  # Index of set in deck
+        self.current_group_idx = 0
+        self.current_group_dict = {}  # Dictionary that holds all cards of current group
+        self.current_group_name = None
+        self.current_group_code = None  # Code of current group
+        self.current_group_page_idx = 0  # Index of page of current group
+        self.current_group_max_page = 0  # Index of group in deck
         self.current_card_idx = 0  # Index of currently displayed card
         self.current_display_names = []  # 10 cards names currently being displayed
         self.current_display_code = []  # 10 cards codes currently being displayed
@@ -2047,30 +2127,35 @@ class Deck:
         async with self.economy.client.pool.acquire() as connection:
             async with connection.transaction():
                 user_deck_record = None
-                if len(self.card_codes) > 0:
-                    user_deck_record = await connection.fetch(
-                        """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
-                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
-                        WHERE deck.discord_uid = $1 AND deck.count > 0 AND deck.code = ANY($2::text[])""",
-                        self.target.id, self.card_codes)
+                if self.card_codes:
+                    if self.missing:
+                        user_deck_record = await connection.fetch(
+                            """SELECT code FROM gray.sw_card_db WHERE code = ANY($1::text[])""",
+                            self.card_codes)
+                    else:
+                        user_deck_record = await connection.fetch(
+                            """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0 AND deck.code = ANY($2::text[])""",
+                            self.target.id, self.card_codes)
                 else:
                     user_deck_record = await connection.fetch(
                         """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
                         INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                         WHERE deck.discord_uid = $1 AND deck.count > 0 AND 
-                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        cards_db.affiliation_name = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
                         self.target.id, 
-                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
                         self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list)
 
-                # Get the card codes you don't have
-                if self.missing:
-                    user_deck_record = await connection.fetch(
-                        """SELECT code FROM gray.sw_card_db 
-                        WHERE affiliation_code = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
-                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
-                        self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
-                        [card['code'] for card in user_deck_record])
+                    # Get the card codes you don't have
+                    if self.missing:
+                        user_deck_record = await connection.fetch(
+                            """SELECT code FROM gray.sw_card_db 
+                            WHERE affiliation_name = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
+                            self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
+                            self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
+                            [card['code'] for card in user_deck_record])
 
                 for card in user_deck_record:
                     card_code = ''
@@ -2090,27 +2175,45 @@ class Deck:
                     return
 
                 db_select_record = await connection.fetch(
-                    """SELECT set_code, code, * FROM gray.sw_card_db WHERE code = ANY($1::text[])""", card_list)
+                    """SELECT code, * FROM gray.sw_card_db WHERE code = ANY($1::text[]) ORDER BY code""", card_list)
                 self.db_select_dict = {}
                 for record in db_select_record:
-                    set_code = ''
+                    group_code = ''
+                    if self.group_by_key:
+                        group_code = record[self.group_by_key]
                     card_code = ''
                     for f, v in record.items():
-                        if f == 'set_code':
-                            set_code = v
+                        if f == group_code:
+                            pass
                         elif f == 'code':
                             card_code = v
                         else:
                             try:
-                                self.db_select_dict[set_code][card_code].update({f: v})
+                                self.db_select_dict[group_code][card_code].update({f: v})
                             except KeyError:
                                 try:
-                                    self.db_select_dict[set_code][card_code] = ({f: v})
+                                    self.db_select_dict[group_code][card_code] = ({f: v})
                                 except KeyError:
-                                    self.db_select_dict[set_code] = {card_code: {f: v}}
-        self.set_list = sorted(list(self.db_select_dict.keys()))
-        self.current_set_code = self.set_list[self.current_set_idx]
-        self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
+                                    self.db_select_dict[group_code] = {card_code: {f: v}}
+
+        # Order the list
+        if self.group_by_key in ['affiliation_name', 'faction_name']:
+            # Alphabetically for affiliation and faction
+            self.group_list = sorted(list(self.db_select_dict.keys()))
+        elif self.group_by_key == 'set_code':
+            # By card code for sets
+            self.group_list = list(self.db_select_dict.keys())
+        elif self.group_by_key == 'rarity_code':
+            # By rarity S => C => U => R => L
+            for rarity_code in self.economy.card_rarity_list:
+                for group in self.db_select_dict.keys():
+                    if rarity_code == group:
+                        self.group_list += group
+        else:
+            self.group_list = list(self.db_select_dict.keys())
+
+        self.current_group_code = self.group_list[self.current_group_idx]
+        self.current_group_dict = self.db_select_dict.get(self.group_list[self.current_group_idx])
 
         # If there's only one card to show, show directly the card embed without reactions
         self.get_current_deck_info()
@@ -2119,19 +2222,26 @@ class Deck:
             self.sent_embed = await self.ctx.send(embed=await self.generate_card_embed())
         else:
             self.sent_embed = await self.ctx.send(embed=await self.generate_deck_embed())
-            for e in Deck.deck_action_emoji_list:
-                await self.sent_embed.add_reaction(e)
+            await self.deck_add_reactions()
 
     def get_current_deck_info(self):
-        keys = self.current_set_dict.keys()
-        self.current_set_max_page = math.ceil(len(list(self.current_set_dict.keys())) / 10)
-        self.current_set_name = self.current_set_dict[next(iter(self.current_set_dict))].get('set_name')
-        self.current_display_names = [self.current_set_dict.get(code).get('name') for idx, code in enumerate(keys) if
-                                      (10 * self.current_set_page_idx <= idx < 10 * (self.current_set_page_idx + 1))]
+        keys = self.current_group_dict.keys()
+        self.current_group_max_page = math.ceil(len(list(self.current_group_dict.keys())) / 10)
+        name_key = ''
+        if self.group_by_key in ['affiliation_name', 'faction_name']:
+            name_key = self.group_by_key            
+        elif self.group_by_key == 'set_code':
+            name_key = 'set_name'
+        elif self.group_by_key == 'rarity_code':
+            name_key = 'rarity_name'
+        if name_key:
+            self.current_group_name = self.current_group_dict[next(iter(self.current_group_dict))].get(name_key)
+        self.current_display_names = [self.current_group_dict.get(code).get('name') for idx, code in enumerate(keys) if
+                                      (10 * self.current_group_page_idx <= idx < 10 * (self.current_group_page_idx + 1))]
         self.current_display_code = [code for idx, code in enumerate(keys) if
-                                     (10 * self.current_set_page_idx <= idx < 10 * (self.current_set_page_idx + 1))]
+                                     (10 * self.current_group_page_idx <= idx < 10 * (self.current_group_page_idx + 1))]
         self.current_card_counts = [self.user_deck_dict.get(code).get('count') for idx, code in enumerate(keys) if
-                                    (10 * self.current_set_page_idx <= idx < 10 * (self.current_set_page_idx + 1))]
+                                    (10 * self.current_group_page_idx <= idx < 10 * (self.current_group_page_idx + 1))]
 
     async def generate_deck_embed(self) -> discord.Embed:
         """Generate embed that shows entire deck by set"""
@@ -2144,29 +2254,57 @@ class Deck:
                 current_i_display_names[idx] = f'{current_i_display_names[idx]} ({self.current_display_code[idx]})'
         card_names_string = '\n'.join(current_i_display_names)
 
-        embed = discord.Embed(title='Set', description=self.current_set_name, colour=self.ctx.author.colour)
-        embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+        embed = None
+        cards_title = 'Cards'
         if self.missing:
-            embed.add_field(name='Missing cards', value=card_names_string, inline=True)
+            cards_title = 'Missing cards'
+
+        filters = ''
+        filters_affiliations_string = helper.join_with_or(self.affiliation_names)
+        filters_rarities_string = helper.join_with_or([self.economy.card_rarity_name_dict[rarity_code] for rarity_code in self.rarity_codes])
+        if self.affiliation_names and self.rarity_codes:
+            filters = '{} and {}'.format(filters_rarities_string, filters_affiliations_string)
+        elif self.affiliation_names:
+            filters = filters_affiliations_string
+        elif self.rarity_codes:
+            filters = filters_rarities_string
+
+        if self.group_by_key:
+            title_name = Deck.group_by_key_name_dict[self.group_by_key]
+            embed = discord.Embed(title=title_name, description=self.current_group_name, colour=self.ctx.author.colour)
+            embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+            if filters:
+                embed.add_field(name='Filters', value=filters, inline=False)    
+            embed.add_field(name=cards_title, value=card_names_string, inline=False)
+            embed.set_footer(
+                text=f'Page {self.current_group_page_idx + 1}/{self.current_group_max_page} of {title_name} {self.current_group_idx + 1}/{len(self.group_list)}')
         else:
-            embed.add_field(name='Cards', value=card_names_string, inline=True)
-        embed.set_footer(
-            text=f'Page {self.current_set_page_idx + 1}/{self.current_set_max_page} of Set {self.current_set_idx + 1}/{len(self.set_list)}')
+            embed = discord.Embed(colour=self.ctx.author.colour, inline=False)
+            embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+            if filters:
+                embed.add_field(name='Filters', value=filters, inline=False)    
+            embed.add_field(name=cards_title, value=card_names_string, inline=False)
+            embed.set_footer(text=f'Page {self.current_group_page_idx + 1}/{self.current_group_max_page}')
         return embed
 
     async def generate_card_embed(self) -> discord.Embed:
         """Generate embed that shows specific card"""
         current_card_code = self.current_display_code[self.current_card_idx]
-        current_card_dict = self.current_set_dict.get(current_card_code)
+        current_card_dict = self.current_group_dict.get(current_card_code)
+        count = self.user_deck_dict.get(current_card_code).get('count')
+        title = '{}{}'.format(current_card_dict.get('name'), f' ({count}x)' if count > 1 else '')
         first_acquired = self.user_deck_dict.get(current_card_code).get('first_acquired')
         rarity_name = f"{current_card_dict.get('rarity_name')}"
-        rarity_bonus = Deck.card_bonus_dict.get(current_card_dict.get('rarity_code'))
-        slot_effect = f"+{rarity_bonus}% on {current_card_dict.get('affiliation_name')} slots."
+        rarity_bonus = Economy.card_bonus_dict.get(current_card_dict.get('rarity_code'))
+        affiliation_name = current_card_dict.get('affiliation_name')
+        slot_effect = f"+{rarity_bonus / 100:.2f}x on {affiliation_name} slots."
         game_effect = current_card_dict.get('game_effect')
         effect = f'{slot_effect}\n{game_effect}' if game_effect is not None else slot_effect
         position = current_card_dict.get('position')
         set_name = current_card_dict.get('set_name')
         faction_name = current_card_dict.get('faction_name')
+        set_position_string = f"{position} of {set_name}"
+        footer_string = '{}\n{}'.format(current_card_code, set_position_string)
         color = 0x7C8E92
         if faction_name == 'Command':
             color = 0xEA040B
@@ -2175,15 +2313,35 @@ class Deck:
         elif faction_name == 'Force':
             color = 0x3B58FA
         imagesrc = current_card_dict.get('imagesrc')
-        embed = discord.Embed(title=rarity_name, description=effect, colour=color)
+
+        embed = discord.Embed(title=title, description='{}\n{}'.format(rarity_name, effect), colour=color)
         embed.set_image(url=imagesrc)
-        if first_acquired is None:
-            embed.set_footer(
-                text=f"{current_card_code}\n{position} of {set_name}\nYou do not own this card")
+
+        if self.missing:
+            async with self.economy.client.pool.acquire() as connection:
+                async with connection.transaction():
+                    uid_count_record = await connection.fetch(
+                        """SELECT discord_uid, count FROM gray.user_deck
+                        WHERE code = $1 AND count > 0""",
+                        current_card_code)
+
+                    who_has_string = 'Nobody'
+                    if uid_count_record:
+                        user_quantity_strings = []
+                        for entry in uid_count_record:
+                            member = await self.ctx.guild.fetch_member(entry['discord_uid'])
+                            user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
+                        who_has_string = '\n'.join(user_quantity_strings)
+                embed.set_footer(text=f'{footer_string}\n\nWho has this card:\n{who_has_string}')
         else:
-            embed.set_footer(
-                text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
+            embed.set_footer(text=footer_string)
         return embed
+
+    async def deck_add_reactions(self):
+        for e in Deck.deck_action_emoji_list:
+            # Only show these buttons if there are more than one group
+            if len(self.group_list) > 1 or str(e) not in ['⏪', '⏩']:
+                await self.sent_embed.add_reaction(e)
 
     async def deck_reaction_waiter(self) -> str:
         """Async helper to await for reactions"""
@@ -2202,34 +2360,34 @@ class Deck:
         return str(reaction.emoji)
 
     def previous_set(self):
-        if self.current_set_idx == 0:
-            self.current_set_idx = len(self.set_list)
-        self.current_set_idx -= 1
-        self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
-        self.current_set_page_idx = 0
+        if self.current_group_idx == 0:
+            self.current_group_idx = len(self.group_list)
+        self.current_group_idx -= 1
+        self.current_group_dict = self.db_select_dict.get(self.group_list[self.current_group_idx])
+        self.current_group_page_idx = 0
         self.current_card_idx = 0
         self.get_current_deck_info()
 
     def next_set(self):
-        if self.current_set_idx == len(self.set_list) - 1:
-            self.current_set_idx = -1
-        self.current_set_idx += 1
-        self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
-        self.current_set_page_idx = 0
+        if self.current_group_idx == len(self.group_list) - 1:
+            self.current_group_idx = -1
+        self.current_group_idx += 1
+        self.current_group_dict = self.db_select_dict.get(self.group_list[self.current_group_idx])
+        self.current_group_page_idx = 0
         self.current_card_idx = 0
         self.get_current_deck_info()
 
     def previous_page(self):
-        if self.current_set_page_idx == 0:
-            self.current_set_page_idx = self.current_set_max_page
-        self.current_set_page_idx -= 1
+        if self.current_group_page_idx == 0:
+            self.current_group_page_idx = self.current_group_max_page
+        self.current_group_page_idx -= 1
         self.current_card_idx = 0
         self.get_current_deck_info()
 
     def next_page(self):
-        if self.current_set_page_idx == self.current_set_max_page - 1:
-            self.current_set_page_idx = -1
-        self.current_set_page_idx += 1
+        if self.current_group_page_idx == self.current_group_max_page - 1:
+            self.current_group_page_idx = -1
+        self.current_group_page_idx += 1
         self.current_card_idx = 0
         self.get_current_deck_info()
 
@@ -2288,14 +2446,13 @@ class Deck:
             elif user_input == Deck.card_action_emoji_list[0]:
                 await self.sent_embed.clear_reactions()
                 await self.sent_embed.edit(embed=await self.generate_deck_embed())
-                for e in Deck.deck_action_emoji_list:
-                    await self.sent_embed.add_reaction(e)
+                await self.deck_add_reactions()
                 self.is_card = False
             # Previous Card
             elif user_input == Deck.card_action_emoji_list[1] and self.is_card:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 if self.current_card_idx == 0:
-                    if self.current_set_page_idx == 0:
+                    if self.current_group_page_idx == 0:
                         self.previous_set()
                         self.previous_page()
                         self.up_page()
@@ -2309,7 +2466,7 @@ class Deck:
             elif user_input == Deck.card_action_emoji_list[2] and self.is_card:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 if self.current_card_idx == len(self.current_display_names) - 1:
-                    if self.current_set_page_idx == self.current_set_max_page - 1:
+                    if self.current_group_page_idx == self.current_group_max_page - 1:
                         self.next_set()
                     else:
                         self.next_page()
@@ -2336,6 +2493,173 @@ class Deck:
             await self.ctx.send('No cards found.')
 
 
+class DeckStats:
+    emoji_list = ['◀', '▶', '🛑']
+    
+
+    def __init__(self, economy, ctx, user):
+        self.economy = economy
+        self.ctx = ctx
+        self.author = ctx.author
+        self.target = user
+
+        self.pages = {'Global': None, 'Rarity': None, 'Affiliation': None, 'Faction': None, 'Set': None}
+        self.pages_to_key = {'Rarity': 'rarity_name', 'Affiliation': 'affiliation_name', 'Faction': 'faction_name', 'Set': 'set_name'}
+
+        self.current_page_idx = 0  # Index of currently displayed card
+        self.sent_embed = None  # Sent embed to update on emoji reaction
+
+    async def start(self):
+        """Pull info from database"""
+        async with self.economy.client.pool.acquire() as connection:
+            async with connection.transaction():
+                for page in self.pages:
+                    if page == 'Global':
+                        # Get values for global stats
+                        total_unique_record = await connection.fetch(
+                            """SELECT SUM(deck.count) AS total, COUNT(deck.count) AS unique
+                            FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0""",
+                            self.target.id)
+                        max_unique = await connection.fetchval(
+                            """SELECT COUNT(*) FROM gray.sw_card_db""")
+                        rarity_count_record = await connection.fetch(
+                            """SELECT cards_db.rarity_code, SUM(deck.count)
+                            FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0 GROUP BY cards_db.rarity_code""",
+                            self.target.id)
+
+                        deck_value = 0
+                        for rarity_count in rarity_count_record:
+                            deck_value += self.economy.card_rarity_value[rarity_count['rarity_code']] * rarity_count['sum']
+
+                        total = 0 if total_unique_record[0]['total'] is None else total_unique_record[0]['total']
+                        # Build global embed
+                        self.pages['Global'] = await self.generate_global_embed(total, total_unique_record[0]['unique'], max_unique, deck_value)
+                    else:
+                        key = self.pages_to_key.get(page)
+                        user_total_unique_record = await connection.fetch(
+                            """SELECT cards_db.{0}, SUM(deck.count) AS total, COUNT(deck.code) AS unique
+                            FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0 GROUP BY cards_db.{0}""".format(key),
+                            self.target.id)
+                        all_unique_record = await connection.fetch(
+                            """SELECT {0}, COUNT({0}) AS max_unique, MIN(code) AS code, MIN(rarity_code) AS rarity_code 
+                            FROM gray.sw_card_db GROUP BY {0} ORDER BY {1}""".format(key, 'code' if page == 'Set' else key))
+
+                        data = {}
+                        for subcategory in all_unique_record:
+                            total = 0
+                            unique = 0                            
+                            for user_total_unique in user_total_unique_record:
+                                if subcategory[key] == user_total_unique[key]:
+                                    total = user_total_unique['total']
+                                    unique = user_total_unique['unique']                                    
+                                    break
+                            data[subcategory[key]] = {
+                                'total': total, 
+                                'unique': unique, 
+                                'max_unique': subcategory['max_unique'], 
+                                'code': subcategory['code'],
+                                'rarity_code': subcategory['rarity_code']
+                            }
+
+                        # Order the list
+                        sorted_data = {}
+                        if page == 'Rarity':
+                            # By rarity S => C => U => R => L
+                            for rarity_code in self.economy.card_rarity_list:
+                                for subcategory in data:
+                                    if rarity_code == data[subcategory]['rarity_code']:
+                                        sorted_data[subcategory] = data[subcategory]
+                        else:
+                            # Done in SQL command for the other
+                            sorted_data = data
+                       
+                        self.pages[page] = await self.generate_category_embed(page, sorted_data)
+
+                self.sent_embed = await self.ctx.send(embed=self.pages['Global'])
+                for e in DeckStats.emoji_list:
+                    await self.sent_embed.add_reaction(e)
+
+    async def generate_global_embed(self, total: int, unique: int, max_unique: int, deck_value: int) -> discord.Embed:
+        embed = discord.Embed(title='Global Stats', description='', colour=self.ctx.author.colour)
+        embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+        embed.add_field(name='Total', value='{:,} cards'.format(total), inline=False)
+        embed.add_field(name='Completion{} '.format(' ✅' if unique == max_unique else ''), 
+            value='{:.1f}%\n{:,}/{:,}'.format(unique / max_unique * 100, unique, max_unique), inline=False)
+        embed.add_field(name='Deck value', value='{}'.format(helper.credits_to_string_with_exact_value(deck_value, '\n')), inline=False)
+        embed.add_field(name='Average card value', value='{}'.format(helper.credits_to_string_with_exact_value(int(deck_value / total), '\n') if total > 0 else 'N/D'), inline=False)
+        embed.set_footer(text=f'Page 1/{len(self.pages)}')
+        return embed        
+
+    async def generate_category_embed(self, title: str, data: dict) -> discord.Embed:
+        embed = discord.Embed(title=title, description='', colour=self.ctx.author.colour)
+        embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+        for subcategory in data:            
+            total = data.get(subcategory).get('total')
+            unique = data.get(subcategory).get('unique')
+            max_unique = data.get(subcategory).get('max_unique')
+            embed.add_field(name='{}{} '.format(subcategory, ' ✅' if unique == max_unique else ''), 
+                value='{:,} cards\n{:.1f}%\n{:,}/{:,}'.format(
+                total, unique / max_unique * 100, unique, max_unique), inline=True)
+        embed.set_footer(text=f'Page {list(self.pages).index(title) + 1}/{len(self.pages)}')
+        return embed        
+
+    async def deck_stat_reaction_waiter(self) -> str:
+        """Async helper to await for reactions"""
+
+        def check(r, u):
+            # R = Reaction, U = User
+            return u == self.ctx.author \
+                   and str(r.emoji) in DeckStats.emoji_list \
+                   and r.message.id == self.sent_embed.id
+
+        try:
+            reaction, _ = await self.economy.client.wait_for('reaction_add', check=check, timeout=60)
+        except asyncio.TimeoutError:
+            return 'Timeout'
+        return str(reaction.emoji)
+
+    async def previous_page(self):
+        self.current_page_idx = (self.current_page_idx - 1) % len(self.pages)
+
+    async def next_page(self):
+        self.current_page_idx = (self.current_page_idx + 1) % len(self.pages)
+
+    async def open(self):
+        """Open up deck stat embed"""
+        while True:
+            user_input = await self.deck_stat_reaction_waiter()
+            # Previous Page - Loopable
+            if user_input == DeckStats.emoji_list[0]:
+                await self.sent_embed.remove_reaction(user_input, self.author)
+                await self.previous_page()
+                await self.sent_embed.edit(embed=list(self.pages.values())[self.current_page_idx])
+            # Next Page - Loopable
+            elif user_input == DeckStats.emoji_list[1]:
+                await self.sent_embed.remove_reaction(user_input, self.author)
+                await self.next_page()
+                await self.sent_embed.edit(embed=list(self.pages.values())[self.current_page_idx])
+            # No response or STOP
+            else:
+                break
+
+    async def close_out(self):
+        """Close out the deck"""
+        await self.sent_embed.clear_reactions()
+        await asyncio.sleep(30)
+        await self.sent_embed.delete()
+
+    async def run(self):
+        """Entry Point"""
+        await self.start()
+        await self.open()
+        await self.close_out()
+
 class EconomyLB(menus.ListPageSource):
     def __init__(self, ctx, data):
         self.ctx = ctx
@@ -2361,11 +2685,11 @@ class EconomyLB(menus.ListPageSource):
             elif idx == 3:
                 return '🥉'
             else:
-                return '{}'.format(idx)
+                return '{}.'.format(idx)
 
         offset = (menu.current_page * self.per_page) + 1
         fields = []
-        table = "\n".join(f"{get_rank(idx+offset)}. {self.ctx.guild.get_member(entry[0]).display_name} - {helper.credits_to_string(entry[1])}" for idx, entry in enumerate(entries))
+        table = "\n".join(f"{get_rank(idx+offset)} {self.ctx.guild.get_member(entry[0]).display_name} - {helper.credits_to_string(entry[1])}" for idx, entry in enumerate(entries))
         fields.append(("Rank", table))
         return await self.write_page(offset, fields)
 
