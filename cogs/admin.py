@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands, tasks, menus
 import datetime
+import random
 from utils import helper, gonk_menus
 
 
@@ -711,6 +712,13 @@ class Admin(commands.Cog):
                                       f'Maintain activity through text or voice channels!'
                                       f'Reclaim your FO# by using the $claim # command in the discord!')
 
+    @commands.command()
+    async def coinflip(self, ctx):
+        '''Flip a coin'''
+        if random.randint(0, 1) == 1:
+            await ctx.send(f'{ctx.author.mention} has won the coinflip 🙌')
+        else:
+            await ctx.send(f'{ctx.author.mention} has lost the coinflip 😟')
 
 def setup(client):
     client.add_cog(Admin(client))
