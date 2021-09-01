@@ -76,10 +76,18 @@ class Admin(commands.Cog):
                                            f'Select your roles in {roles_channel.mention}\n'
                                            f'Demonstrate good teamwork ability to get promoted to FO!')
                 lt_list = discord.utils.get(after.guild.roles, name='Lieutenant').members
-                self.lt_increment = self.lt_increment + 1 if self.lt_increment < len(lt_list) - 1 else 0
-                await self.assign_mentor(None, lt_list[self.lt_increment], after)
-                await general_channel.send(
-                    f'{after.mention} your assigned mentor is: {lt_list[self.lt_increment].mention}!')
+                retired_list = discord.utils.get(after.guild.roles, name='Retired').members
+                active_lt_list = []
+                for lt in lt_list:
+                    if lt not in retired_list:
+                        active_lt_list += [lt]
+                if active_lt_list:
+                    self.lt_increment = self.lt_increment + 1 if self.lt_increment < len(active_lt_list) - 1 else 0
+                    await self.assign_mentor(None, active_lt_list[self.lt_increment], after)
+                    await general_channel.send(
+                        f'{after.mention} your assigned mentor is: {active_lt_list[self.lt_increment].mention}!')
+                else:
+                    await helper.bot_log(self.client, 'Error: All Lieutenants are retired!')
             elif new_role.name == 'Flight Officer':
                 lft_channel = discord.utils.get(guild.text_channels, name='looking-for-team')
                 ace_channel = discord.utils.get(guild.text_channels, name='ace-pilot-stats')
@@ -109,6 +117,10 @@ class Admin(commands.Cog):
                 await general_channel.send(f'{after.mention} has been promoted to {new_role}!\n'
                                            f'Promotes Flight Officers to Lieutenants as a group\n'
                                            f'Assassinate {scum.mention} to take the Commanders throne!')
+            else:
+                await self.update_member_nick(None, after)
+        else:
+            await self.update_member_nick(None, after)
 
     # Commands
     @commands.command()
@@ -161,7 +173,7 @@ class Admin(commands.Cog):
     @commands.command()
     async def update_member_nick(self, ctx, member: discord.Member = None):
         """Manual prefix update on nickname"""
-        prefix, fo_num = '', ''
+        prefix, fo_num, retired = '', '', ''
         if member is None:
             member = ctx.author
         member_roles = member.roles
@@ -169,21 +181,24 @@ class Admin(commands.Cog):
         if discord.utils.get(guild_roles, name='Commander') in member_roles:
             return
         elif discord.utils.get(guild_roles, name='Captain') in member_roles:
-            prefix = '[Cpt-{0}]'
+            prefix = '[Cpt-{0}{1}]'
         elif discord.utils.get(guild_roles, name='Lieutenant') in member_roles:
-            prefix = '[Lt-{0}]'
+            prefix = '[Lt-{0}{1}]'
         elif discord.utils.get(guild_roles, name='Flight Officer') in member_roles:
-            prefix = '[FO-{0}]'
+            prefix = '[FO-{0}{1}]'
         elif discord.utils.get(guild_roles, name='Cadet') in member_roles:
             prefix = '[Cdt]'
         elif discord.utils.get(guild_roles, name='Citizen') in member_roles:
             return
+        if discord.utils.get(guild_roles, name='Retired') in member_roles:
+            retired = ' (Ret.)'
+
         fo = await helper.get_roster(self, 'fo', member.id)
         if fo is not None:
-            prefix = prefix.format(str(fo).zfill(3))
+            prefix = prefix.format(str(fo).zfill(3), retired)
         else:
             if prefix != '[Cdt]':
-                prefix = prefix.format('?')
+                prefix = prefix.format('?', retired)
         before_nick = member.nick if member.nick is not None else member.name
         index = before_nick.find(']')
         before_nick = prefix + ' ' + (before_nick[index + 1:].strip() if index > 0 else before_nick)
