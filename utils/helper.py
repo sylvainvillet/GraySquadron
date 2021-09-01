@@ -1,6 +1,7 @@
 import json
 import discord
 import math
+from datetime import timedelta
 
 
 def get_config(key):
@@ -61,6 +62,20 @@ def record_to_dict(f_record, key_name: str):
                 except KeyError:
                     return_dict[key] = {f: v}
     return return_dict
+
+def get_member_display_name(guild, discord_uid: int) -> str:
+    member = guild.get_member(discord_uid)
+    if member is None:
+        return 'Unknown user'
+    else:
+        return member.display_name
+
+def get_member_mention(guild, discord_uid: int):
+    member = guild.get_member(discord_uid)
+    if member is None:
+        return 'Unknown user'
+    else:
+        return member.mention
 
 def join_with_and(values, last_word: str = 'and') -> str:
     """Same as ', '.join() but with ' and ' between the last 2 values"""
@@ -156,9 +171,56 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
 
     return user, has_all, group_by_key, affiliation_names, rarity_codes, card_codes
 
+def parse_input_arg_ships(arg) -> int:
+    """Parses the args looking for a ship name
+    Returns the ship_id if found, -1 otherwise"""
+
+    ship_id = 0
+    argLowerCase = arg.lower()
+    if argLowerCase in ['a', 'aw', 'awing', 'a-wing']:
+        ship_id = 0
+    elif argLowerCase in ['x', 'xw', 'xwing', 'x-wing']:
+        ship_id = 1
+    elif argLowerCase in ['y', 'yw', 'ywing', 'y-wing']:
+        ship_id = 2
+    elif argLowerCase in ['i', 'ti', 'tiein', 'tieinterceptor']:
+        ship_id = 3
+    elif argLowerCase in ['f', 'tf', 'tieln', 'tiefighter']:
+        ship_id = 4
+    elif argLowerCase in ['b', 'tb', 'tiesa', 'tiebomber']:
+        ship_id = 5
+    else:
+        return -1
+    return ship_id
+
+def parse_input_arg_maps(arg) -> int:
+    """Parses the args looking for a maps name
+    Returns the map_id if found, -1 otherwise"""
+
+    map_id = 0
+    argLowerCase = arg.lower()
+    if argLowerCase in ['f', 'fostar', 'fostarhaven']:
+        map_id = 0
+    elif argLowerCase in ['y', 'yavin', 'yavinprime']:
+        map_id = 1
+    elif argLowerCase in ['e', 'esseles']:
+        map_id = 2
+    elif argLowerCase in ['n', 'nadiri', 'nadiridockyard', 'nadiridockyards']:
+        map_id = 3
+    elif argLowerCase in ['s', 'sissubo']:
+        map_id = 4
+    elif argLowerCase in ['g', 'galitan']:
+        map_id = 5
+    elif argLowerCase in ['z', 'zavian', 'zavianabyss']:
+        map_id = 6
+    else:
+        return -1
+    return map_id
+
 def parse_amount(amount: str) -> int:
     """Parses the amount that can be either and integer, or something like "10k", "1.2M", etc..."""
-    amountLowerCase = amount.lower()
+    amountLowerCase = amount.lower().replace('c', '')
+
     exp = 0
     if amountLowerCase.endswith('k'):
         exp = 3
@@ -172,9 +234,9 @@ def parse_amount(amount: str) -> int:
         exp = 15
 
     if exp == 0:
-        return int(amount)
+        return int(amountLowerCase)
     else:
-        return int(float(amount[:len(amount)-1])*10**exp)
+        return int(float(amountLowerCase[:len(amountLowerCase)-1])*10**exp)
 
 def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
     """Returns "XXX'XXX" C if under a million, otherwise "XXX MC" """
@@ -231,3 +293,61 @@ async def bot_log(client: discord.client, error: str, message: discord.Message =
     log_channel = discord.utils.get(guild.text_channels, name=channel_name)
     if log_channel:
         await log_channel.send(error_message)
+
+def race_time_to_string(time: int) -> str:
+    '''XX:XX.XXX'''
+    return str(timedelta(seconds=time))[2:-3]
+
+def lap_time_to_string(time: int) -> str:
+    '''X:XX.XXX'''
+    return str(timedelta(seconds=time))[3:-3]
+
+def get_progress_bar(value: int, max_value: int, offset: int = 0) -> str:
+    """Value is the actual position, offset = value - base_value"""
+    offset = int(round(offset))
+    base_value = int(round((value - offset) / max_value * 10))
+    if base_value > 10:
+        base_value = 10
+    elif base_value < 0:
+        base_value = 0
+    value = value / max_value * 10
+
+    # Force at least one green/red square if offset not 0
+    if offset > 0:
+        value = int(math.ceil(value))
+        if value == base_value:
+            value += 1
+    elif offset < 0:
+        value = int(math.floor(value))
+        if value == base_value:
+            value -= 1
+    else:
+        value = int(round(value))
+
+    if value > 10:
+        value = 10
+    elif value < 0:
+        value = 0
+
+    output = ''
+    if base_value < value:
+        for i in range(0, base_value):
+            output += '⬜'
+        for i in range(base_value, value):
+            output += '🟩'
+        for i in range(value, 10):
+            output += '⬛'
+    elif base_value > value:
+        for i in range(0, value):
+            output += '⬜'
+        for i in range(value, base_value):
+            output += '🟥'
+        for i in range(base_value, 10):
+            output += '⬛'
+    else:
+        for i in range(0, value):
+            output += '⬜'
+        for i in range(value, 10):
+            output += '⬛'
+
+    return output
