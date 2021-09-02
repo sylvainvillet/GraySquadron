@@ -118,9 +118,9 @@ class Admin(commands.Cog):
                 await general_channel.send(f'{after.mention} has been promoted to {new_role}!\n'
                                            f'Promotes Flight Officers to Lieutenants as a group\n'
                                            f'Assassinate {scum.mention} to take the Commanders throne!')
-            else:
+            elif new_role.name == 'Retired':
                 await self.update_member_nick(None, after)
-        else:
+        elif len(after.roles) < len(before.roles):
             await self.update_member_nick(None, after)
 
     # Commands
