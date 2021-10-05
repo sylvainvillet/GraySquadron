@@ -13,6 +13,9 @@ from utils import helper
 
 description = '''I am the Gray Squadron Gonk Droid!'''
 
+# Roles permitted to load/unload/reload COG modules
+COG_MANAGEMENT_ROLES = ["Commander", "Captain", "Droid Engineer"]
+
 TOKEN = helper.get_config('bot_token')
 POSTGRES_INFO = helper.get_config('postgres_info')
 
@@ -84,7 +87,7 @@ async def load_all():
 
 
 @client.command()
-@commands.has_any_role('Commander', 'Droid Engineer')
+@commands.has_any_role(*COG_MANAGEMENT_ROLES)
 async def load(ctx, extension: str):
     """Load cogs"""
     cog_list = [f for f in os.listdir('./cogs') if f.endswith('.py')]
@@ -121,7 +124,7 @@ async def load_error(ctx, error):
 
 
 @client.command()
-@commands.has_any_role('Commander', 'Droid Engineer')
+@commands.has_any_role(*COG_MANAGEMENT_ROLES)
 async def unload(ctx, extension: str):
     """Unload cogs"""
     cog_list = [f for f in os.listdir('./cogs') if f.endswith('.py')]
@@ -153,7 +156,7 @@ async def unload_error(ctx, error):
 
 
 @client.command()
-@commands.has_any_role('Commander', 'Droid Engineer')
+@commands.has_any_role(*COG_MANAGEMENT_ROLES)
 async def reload(ctx, extension: str):
     """Reload cogs"""
     cog_list = [f for f in os.listdir('./cogs') if f.endswith('.py')]
