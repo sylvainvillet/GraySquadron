@@ -471,7 +471,7 @@ class Economy(commands.Cog):
                'SELECT deck.discord_uid, cards_db.rarity_code, SUM(deck.count) FROM gray.user_deck AS deck 
                 INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code GROUP BY 1,2 ORDER BY 1,2;',
                 'SELECT DISTINCT rarity_code FROM gray.sw_card_db ORDER BY 1'
-               ) AS ct (discord_uid bigint, "C" int, "L" int, "R" int, "S" int, "U" int) 
+               ) AS ct (discord_uid bigint, "C" bigint, "L" bigint, "R" bigint, "S" bigint, "U" bigint) 
    
                 RIGHT JOIN gray.rpginfo AS rpginfo on ct.discord_uid = rpginfo.discord_uid 
                 WHERE rpginfo.discord_uid <> $1 ORDER BY "TOTAL" DESC;""", self.bot_discord_uid)
