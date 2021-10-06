@@ -7,6 +7,8 @@ import asyncio
 import discord
 from discord.ext import commands
 
+from utils import helper
+
 
 BOT_QUOTES_CHANNEL_NAME = "bot-quotes"
 QUOTE_EDIT_ROLES = "Commander", "Captain", "Lieutenant"
@@ -26,7 +28,8 @@ def with_url_brackets(url: str) -> str:
 
 async def get_bot_quotes_channel(bot: commands.Bot) -> discord.TextChannel:
     """Locate or create bot-quotes channel on server (assuming bot is registered to a single server)."""
-    guild: discord.Guild = bot.guilds[0]
+    guild = bot.get_guild(helper.get_config("guild_id"))
+    assert guild, "Invalid guild ID in config"
     channel: discord.TextChannel = \
         discord.utils.get(guild.text_channels, name=BOT_QUOTES_CHANNEL_NAME) \
         or await guild.create_text_channel(BOT_QUOTES_CHANNEL_NAME)
