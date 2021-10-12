@@ -250,6 +250,7 @@ class Fun(commands.Cog):
                    'https://cdn.discordapp.com/attachments/800431166997790790/847498755484942396/DTF18.jpg',
                    'https://cdn.discordapp.com/attachments/800431166997790790/847498757171970108/DTF19.jpg',
                    'https://cdn.discordapp.com/attachments/800431166997790790/847498762459807795/DTF20.jpg',
+                   'https://cdn.discordapp.com/attachments/760342037962031116/897340137573318696/image0.png',
                    ]
         if pick == -1:
             await ctx.send(random.choice(choices))
