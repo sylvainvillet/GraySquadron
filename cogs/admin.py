@@ -212,8 +212,8 @@ class Admin(commands.Cog):
         else:
             try:
                 await member.edit(nick=after_nick)
-            except:
-                print('Error in update_nick for member:', member.display_name)
+            except Exception as e:
+                print(f"Failed member nick update on '{member.display_name}' ({e})")
 
     @commands.command()
     @commands.has_any_role('Droid Engineer', 'Commander', 'Captain', 'Lieutenant')
