@@ -1022,13 +1022,14 @@ class Racing(commands.Cog):
                 f'for a total of {helper.credits_to_string(winner_bonus * winner_bet / 100 + jackpot)}!\n'
                 f'Registration is now open for the next race with a {helper.credits_to_string(next_race_jackpot)} jackpot!',
                 color=map_info['color'])
-            embed.add_field(name='Standing', value='\n'.join(standing), inline=False)
+            
+            helper.add_splittable_field(embed, 'Standing', standing)
         else:
             embed = discord.Embed(title='Race result', description=f'The race is over... And everybody died!\n'
                 f'Registration is now open for the next race with a {helper.credits_to_string(next_race_jackpot)} jackpot!', color=map_info['color'])
 
         if events_strings:
-            embed.add_field(name='Events', value='\n'.join(events_strings), inline=False)
+            helper.add_splittable_field(embed, 'Events', events_strings)
         if best_lap is not None:
             embed.add_field(name='Best lap', value='{}: {}{}'.format(best_lap_name, helper.lap_time_to_string(best_lap),
                                                                     ' (NEW RECORD)' if new_lap_record else ''), inline=False)
@@ -1122,9 +1123,9 @@ class Racing(commands.Cog):
         else:
             embed = discord.Embed(title=title, description=f'Everybody died!', color=map_info['color'])
 
-        embed.add_field(name='Standing', value='\n'.join(standing), inline=False)
+        helper.add_splittable_field(embed, 'Standing', standing)
         if events_strings:
-            embed.add_field(name='Your events', value='\n'.join(events_strings), inline=False)
+            helper.add_splittable_field(embed, 'Your events', events_strings)
         if laps_strings:
             embed.add_field(name='Your lap times', value='\n'.join(laps_strings), inline=False)
         if result[user.id]['best_lap'] is not None:

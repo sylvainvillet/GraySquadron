@@ -351,3 +351,14 @@ def get_progress_bar(value: int, max_value: int, offset: int = 0) -> str:
             output += '⬛'
 
     return output
+
+def add_splittable_field(embed: discord.Embed, name: str, valuesList: [], inline: bool = False):
+    if len('\n'.join(valuesList)) > 1000:
+        nbOfValues = len(valuesList)
+        splitted_lists = [valuesList[x:x+10 if x+10 <= nbOfValues else nbOfValues] for x in range(0, nbOfValues, 10)]
+        for idx, sub_list in enumerate(splitted_lists):
+            value = '\n'.join(sub_list);
+            embed.add_field(name='{} ({}/{})'.format(name, idx + 1, len(splitted_lists)), 
+                value=value, inline=inline)
+    else:    
+        embed.add_field(name=name, value='\n'.join(valuesList), inline=inline)
