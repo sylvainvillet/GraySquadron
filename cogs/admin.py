@@ -582,102 +582,16 @@ class Admin(commands.Cog):
             print(error)
 
     @commands.command()
-    @commands.has_any_role('Droid Engineer', 'Commander', 'Captain')
-    async def set_team_description(self, ctx, role: discord.Role, *, description: str):
-        """Function to set the description for a team"""
-        role_uid = role.id
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                await connection.execute("""INSERT INTO gray.teaminfo (role_uid, team_desc)
-                                            VALUES ($1, $2)
-                                            ON CONFLICT (role_uid) DO UPDATE SET team_desc = $2""",
-                                         role_uid,
-                                         description)
-
-    @set_team_description.error
-    async def set_team_description_error(self, ctx, error):
-        if isinstance(error, commands.MissingAnyRole):
-            await ctx.send('You must be Cpt+ to set team description!')
-        elif isinstance(error, commands.RoleNotFound):
-            await ctx.send('Please mention a role as the first argument.')
-        else:
-            print(error)
-
-    async def get_team_description(self, role_uid: int):
-        """Function get team description for a specific role"""
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                team_desc = await connection.fetchval("""SELECT team_desc FROM gray.teaminfo
-                                                           where role_uid = $1""",
-                                                      role_uid)
-        if team_desc is None:
-            team_desc = 'No description.'
-        return team_desc
+    async def set_team_description(self, ctx, *args, **kwargs):
+        await ctx.send("Superseded by slash command `/team set_description`")
 
     @commands.command()
-    @commands.has_any_role('Droid Engineer', 'Commander', 'Captain')
-    async def set_team_emblem(self, ctx, role: discord.Role, *, emblem_link: str):
-        """Function to set the description for a team"""
-        role_uid = role.id
-        emblem_link = emblem_link.replace('"', '').replace("'", "")
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                await connection.execute("""INSERT INTO gray.teaminfo (role_uid, team_emblem)
-                                            VALUES ($1, $2)
-                                            ON CONFLICT (role_uid) DO UPDATE SET team_emblem = $2""",
-                                         role_uid,
-                                         emblem_link)
-
-    @set_team_emblem.error
-    async def set_team_emblem_error(self, ctx, error):
-        if isinstance(error, commands.MissingAnyRole):
-            await ctx.send('You must be Cpt+ to set team emblem!')
-        elif isinstance(error, commands.RoleNotFound):
-            await ctx.send('Please mention a role as the first argument.')
-        else:
-            print(error)
-
-    async def get_team_emblem(self, role_uid: int):
-        """Function get team emblem for a specific role"""
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                emblem_link = await connection.fetchval("""SELECT team_emblem FROM gray.teaminfo
-                                                           where role_uid = $1""",
-                                                        role_uid)
-        if emblem_link is None:
-            emblem_link = 'https://cdn.discordapp.com/attachments/800431166997790790/837390154242326538/unknown.png'
-        return emblem_link
+    async def set_team_emblem(self, ctx, *args, **kwargs):
+        await ctx.send("Superseded by slash command `/team set_emblem`")
 
     @commands.command(aliases=['team'])
-    async def teams(self, ctx):
-        """Displays paginated embed of teams if plural, users team if singular"""
-        if '$TEAMS' in ctx.message.content.upper():
-            roles = [r for r in ctx.guild.roles if 'Team' in r.name and 'Leader' not in r.name]
-        else:
-            roles = [r for r in ctx.author.roles if 'Team' in r.name and 'Leader' not in r.name]
-        if len(roles) > 0:
-            team_list = []
-            for role in roles:
-                members = role.members
-                desc = await self.get_team_description(role.id)
-                emblem = await self.get_team_emblem(role.id)
-                for idx, member in enumerate(members):
-                    if idx == 0:
-                        team_list.append(
-                            gonk_menus.CustomDic(key=role.name, value=[member.display_name, role.name, role.color,
-                                                                       desc, emblem]))
-                    else:
-                        team_list.append(
-                            gonk_menus.CustomDic(key=role.name, value=[member.display_name, 0, 0, 0, 0]))
-            menu = menus.MenuPages(source=gonk_menus.TeamMenu(ctx, team_list, key=lambda t: t.key),
-                                   clear_reactions_after=True)
-            await menu.start(ctx)
-        else:
-            await ctx.send('You are on no teams!')
-
-    @teams.error
-    async def teams_error(self, ctx, error):
-        print(error)
+    async def teams(self, ctx, *args, **kwargs):
+        await ctx.send("Superseded by slash command `/teams`")
 
     # Background Tasks
     @tasks.loop(seconds=600, reconnect=True)
