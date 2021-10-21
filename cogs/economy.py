@@ -412,7 +412,6 @@ class Economy(commands.Cog):
         await self.change_credits(user.id, count)
 
     @commands.command()
-    @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
     async def transfer(self, ctx, member: discord.Member, amount: str, *, reason: str = None):
         """Transfer credits to another user.
         Examples: 
