@@ -18,12 +18,14 @@ class Racing(commands.Cog):
     finish_a_race_bonus = 100
     participation_streak_bonus = 2
     finishing_streak_bonus = 4
-    first_in_class_bonus = 40
+    first_in_class_bonus = 20
+    first_ship_bonus = 10
     podium_bonuses = [100, 50, 25]
     kill_bonus = 20
     disable_bonus = 10
     best_lap_bonus = 20
     most_damage_bonus = 20
+    streak_max = 10
 
     global_damage_factor = 1.0
 
@@ -241,14 +243,14 @@ class Racing(commands.Cog):
                         SET position = $3, is_alive = $4, bonus = $5, jackpot = $6,
                         gain_credits = $7, laps_completed = $8, final_time = $9, best_lap = $10, 
                         shield_damage_dealt = $11, hull_damage_dealt = $12, ioning_damage_dealt = $13, kills = $14, 
-                        disables = $15, is_first_in_class = $16, is_race_best_lap = $17, is_race_most_damage = $18,
-                        participation_streak = $19, finishing_streak = $20
+                        disables = $15, is_first_in_class = $16, is_first_ship = $17, is_race_best_lap = $18, 
+                        is_race_most_damage = $19, participation_streak = $20, finishing_streak = $21
                         WHERE race_id = $1 AND discord_uid = $2""",
                         race_id, discord_uid,
                         result[discord_uid]['position'], result[discord_uid]['is_alive'], result[discord_uid]['total_bonus'], result[discord_uid]['jackpot'],
                         result[discord_uid]['gain_credits'], result[discord_uid]['laps_completed'], result[discord_uid]['final_time'], result[discord_uid]['best_lap'],
                         result[discord_uid]['shield_damage_dealt'], result[discord_uid]['hull_damage_dealt'], result[discord_uid]['ioning_damage_dealt'], result[discord_uid]['kills'],
-                        result[discord_uid]['disables'], result[discord_uid]['first_in_class_bonus'] > 0, 
+                        result[discord_uid]['disables'], result[discord_uid]['first_in_class_bonus'] > 0, result[discord_uid]['first_ship_bonus'] > 0, 
                         result[discord_uid]['best_lap_bonus'] > 0, 
                         result[discord_uid]['most_damage_bonus'] > 0,
                         result[discord_uid]['participation_streak'], result[discord_uid]['finishing_streak'])
@@ -581,6 +583,13 @@ class Racing(commands.Cog):
         first_in_class_found['interceptor'] = False
         first_in_class_found['fighter'] = False
         first_in_class_found['bomber'] = False
+        first_ship_found = {}
+        first_ship_found[0] = False
+        first_ship_found[1] = False
+        first_ship_found[2] = False
+        first_ship_found[3] = False
+        first_ship_found[4] = False
+        first_ship_found[5] = False
 
         best_lap = None
         best_lap_uid = None
@@ -592,6 +601,7 @@ class Racing(commands.Cog):
             result[discord_uid]['finish_a_race_bonus'] = 0
             result[discord_uid]['finishing_streak_bonus'] = 0
             result[discord_uid]['first_in_class_bonus'] = 0
+            result[discord_uid]['first_ship_bonus'] = 0
             result[discord_uid]['podium_bonus'] = 0
             result[discord_uid]['best_lap_bonus'] = 0            
             result[discord_uid]['most_damage_bonus'] = 0
@@ -602,6 +612,9 @@ class Racing(commands.Cog):
                 if not first_in_class_found[result[discord_uid]['class']]:
                     first_in_class_found[result[discord_uid]['class']] = True
                     result[discord_uid]['first_in_class_bonus'] = Racing.first_in_class_bonus
+                if not first_ship_found[entry_list_dict[discord_uid]['ship_id']]:
+                    first_ship_found[entry_list_dict[discord_uid]['ship_id']] = True
+                    result[discord_uid]['first_ship_bonus'] = Racing.first_ship_bonus
                 if result[discord_uid]['position'] <= 3:
                     result[discord_uid]['podium_bonus'] = Racing.podium_bonuses[result[discord_uid]['position'] - 1]
 
@@ -631,6 +644,10 @@ class Racing(commands.Cog):
                     if finishing_streak > 0:
                         finishing_streak += previous_user_result['finishing_streak']
 
+            # Cap values to max_streak
+            participation_streak = min(Racing.streak_max, participation_streak)
+            finishing_streak = min(Racing.streak_max, finishing_streak)
+
             # The bot doesn't get participation streak bonus as it's automatically registered to all races
             if discord_uid == self.bot_discord_uid:
                 result[discord_uid]['participation_streak'] = 0
@@ -652,6 +669,7 @@ class Racing(commands.Cog):
                          result[discord_uid]['participation_streak_bonus'] + \
                          result[discord_uid]['finishing_streak_bonus'] + \
                          result[discord_uid]['first_in_class_bonus'] + \
+                         result[discord_uid]['first_ship_bonus'] + \
                          result[discord_uid]['podium_bonus'] + \
                          result[discord_uid]['kill_bonus'] + \
                          result[discord_uid]['disable_bonus'] + \
@@ -1090,6 +1108,9 @@ class Racing(commands.Cog):
         if result[user.id]['first_in_class_bonus'] > 0:
             bonus_strings += ['First in class ({}): {} pts'.format(self.ships_info_dict[entry_list_dict[user.id]['ship_id']]['class'], 
                                                                    result[user.id]['first_in_class_bonus'])]
+        if result[user.id]['first_ship_bonus'] > 0:
+            bonus_strings += ['First {}: {} pts'.format(self.ships_info_dict[entry_list_dict[user.id]['ship_id']]['display_name'], 
+                                                                   result[user.id]['first_ship_bonus'])]
         if user_kills > 0:
             bonus_strings += ['Kills ({} x {}): {} pts'.format(user_kills, Racing.kill_bonus, result[user.id]['kill_bonus'])]
         if user_disables > 0:
