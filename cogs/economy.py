@@ -1418,9 +1418,7 @@ class Economy(commands.Cog):
                 else:
                     user_quantity_strings = []
                     for entry in uid_count_record:
-                        member = ctx.guild.get_member(entry['discord_uid'])
-                        if member is not None:
-                            user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
+                        user_quantity_strings.append('{} ({}x)'.format(helper.get_member_display_name(ctx.guild, entry['discord_uid']), entry['count']))
                     if len(user_quantity_strings) == 1:
                         await ctx.send('{} has the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
                     else:
@@ -2329,9 +2327,7 @@ class Deck:
                     if uid_count_record:
                         user_quantity_strings = []
                         for entry in uid_count_record:
-                            member = self.ctx.guild.get_member(entry['discord_uid'])
-                            if member is not None:
-                                user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
+                            user_quantity_strings.append('{} ({}x)'.format(helper.get_member_display_name(self.ctx.guild, entry['discord_uid']), entry['count']))
                         who_has_string = '\n'.join(user_quantity_strings)
                 embed.set_footer(text=f'{footer_string}\n\nWho has this card:\n{who_has_string}')
         else:
