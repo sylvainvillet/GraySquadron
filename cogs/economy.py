@@ -1418,7 +1418,7 @@ class Economy(commands.Cog):
                 else:
                     user_quantity_strings = []
                     for entry in uid_count_record:
-                        member = await ctx.guild.get_member(entry['discord_uid'])
+                        member = ctx.guild.get_member(entry['discord_uid'])
                         if member is not None:
                             user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
                     if len(user_quantity_strings) == 1:
@@ -2329,7 +2329,7 @@ class Deck:
                     if uid_count_record:
                         user_quantity_strings = []
                         for entry in uid_count_record:
-                            member = await self.ctx.guild.get_member(entry['discord_uid'])
+                            member = self.ctx.guild.get_member(entry['discord_uid'])
                             if member is not None:
                                 user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
                         who_has_string = '\n'.join(user_quantity_strings)
