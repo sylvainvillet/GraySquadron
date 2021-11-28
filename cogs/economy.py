@@ -120,11 +120,14 @@ class Economy(commands.Cog):
         """Function to set a specific discord users credits"""
         async with self.client.pool.acquire() as connection:
             async with connection.transaction():
-                await connection.execute("""INSERT INTO gray.rpginfo (discord_uid, credits)
-                                            VALUES ($1, $2) ON CONFLICT (discord_uid) DO 
-                                            UPDATE SET credits = rpginfo.credits + $2""",
-                                         discord_uid,
-                                         round(credit_change))
+                try:
+                    await connection.execute("""INSERT INTO gray.rpginfo (discord_uid, credits)
+                                                VALUES ($1, $2) ON CONFLICT (discord_uid) DO 
+                                                UPDATE SET credits = rpginfo.credits + $2""",
+                                             discord_uid,
+                                             round(credit_change))
+                except:
+                    await helper.bot_log(self.client, 'Error in change_credits method')
 
     async def get_deck_value(self, discord_uid: int) -> int:
         """Get the total value of all the cards of specified discord user"""

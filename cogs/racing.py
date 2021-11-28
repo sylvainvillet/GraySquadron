@@ -680,13 +680,18 @@ class Racing(commands.Cog):
             result[discord_uid]['entry_bet_credits'] = entry_bet_credits
             jackpot = race_info['jackpot']
 
+            user_credits = await self.economy.get_credits(discord_uid)
             gain_credits = entry_bet_credits * total_bonus / 100
             if result[discord_uid]['is_alive'] and result[discord_uid]['position'] == 1:
                 result[discord_uid]['jackpot'] = jackpot
                 gain_credits += jackpot
             else:
                 result[discord_uid]['jackpot'] = 0
-            result[discord_uid]['gain_credits'] = gain_credits
+
+            if gain_credits + user_credits > 9223372036854775807:
+                result[discord_uid]['gain_credits'] = 9223372036854775807 - user_credits
+            else:
+                result[discord_uid]['gain_credits'] = gain_credits
 
         return best_lap, best_lap_uid, most_damage, most_damage_uid
 
