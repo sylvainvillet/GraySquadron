@@ -226,12 +226,18 @@ def parse_amount(amount: str) -> int:
         exp = 3
     elif amountLowerCase.endswith('m'):
         exp = 6
-    elif amountLowerCase.endswith('b'):
+    elif amountLowerCase.endswith('g'):
         exp = 9
     elif amountLowerCase.endswith('t'):
         exp = 12
-    elif amountLowerCase.endswith('q'):
+    elif amountLowerCase.endswith('p'):
         exp = 15
+    elif amountLowerCase.endswith('e'):
+        exp = 18
+    elif amountLowerCase.endswith('z'):
+        exp = 21
+    elif amountLowerCase.endswith('y'):
+        exp = 24
 
     if exp == 0:
         return int(amountLowerCase)
@@ -244,14 +250,23 @@ def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
     divider = 1
     absAmount = abs(amount)
 
-    if absAmount >= 10**15:
-        letter = 'Q'
+    if absAmount >= 10**24:
+        letter = 'Y'
+        divider = 10**24
+    if absAmount >= 10**21:
+        letter = 'Z'
+        divider = 10**21
+    if absAmount >= 10**18:
+        letter = 'E'
+        divider = 10**18
+    elif absAmount >= 10**15:
+        letter = 'P'
         divider = 10**15
     elif absAmount >= 10**12:
         letter = 'T'
         divider = 10**12
     elif absAmount >= 10**9:
-        letter = 'B'
+        letter = 'G'
         divider = 10**9
     elif absAmount >= 10**6:
         letter = 'M'
@@ -259,7 +274,7 @@ def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
         
     if divider == 1:
         return '{:,} C'.format(int(amount))
-    if amount >= 10**18:
+    if amount >= 10**27:
         return '{:,} {}C'.format(int(amount / divider), letter)
     else:
         power_of_10 = max(0,int(math.floor(math.log10(absAmount))))

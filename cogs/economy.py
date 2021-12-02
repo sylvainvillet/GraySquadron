@@ -398,10 +398,10 @@ class Economy(commands.Cog):
         embed.set_author(name=user.display_name, icon_url=user.avatar_url)
         embed.set_thumbnail(url=img_link)
         embed.add_field(name='Wallet', value='{}\nTax Rate: {:.1f}%'.format(
-                                              helper.credits_to_string_with_exact_value(credit_total, '\n'),
+                                              helper.credits_to_string(credit_total),
                                               tax_rate * 100), inline=False)
-        embed.add_field(name='Deck value', value=helper.credits_to_string_with_exact_value(deck_value, '\n'), inline=False)
-        embed.add_field(name='Total', value=helper.credits_to_string_with_exact_value(deck_value + credit_total, '\n'), inline=False)
+        embed.add_field(name='Deck value', value=helper.credits_to_string(deck_value), inline=False)
+        embed.add_field(name='Total', value=helper.credits_to_string(deck_value + credit_total), inline=False)
         # TODO: Stats on wallet growth
         await ctx.send(embed=embed)
 
