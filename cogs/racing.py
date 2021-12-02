@@ -1684,7 +1684,7 @@ class Racing(commands.Cog):
         await helper.bot_log(self.client, error, ctx.message)
 
     # Commands
-    @commands.command(aliases=['ship', 'ships'])
+    @commands.command(aliases=['ship', 'ships', 'hanger'])
     async def hangar(self, ctx, ship_argument: str = 'a-wing'):
         """Shows your ships and lets you edit the loadouts
 
@@ -1705,6 +1705,15 @@ class Racing(commands.Cog):
         - $hangar xw
         Shows the X-wing first
         """
+        await ctx.send(ctx.message.content)
+        if ctx.message.content.startswith('$hanger'):
+            await ctx.send('https://giphy.com/gifs/cbc-oh-well-dragons-den-xUOxf749qtWRklIbh6')
+            return
+
+        if ship_argument == "18":
+            await ctx.send('https://tenor.com/view/mustaine-gif-19913723')
+            return
+
         ship_id = helper.parse_input_arg_ships(ship_argument)
         if ship_id < 0:
             await ctx.send(f'Invalid argument: {ship_argument}\nType "$help hangar" for more info.')
