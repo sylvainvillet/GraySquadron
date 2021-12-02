@@ -1705,7 +1705,6 @@ class Racing(commands.Cog):
         - $hangar xw
         Shows the X-wing first
         """
-        await ctx.send(ctx.message.content)
         if ctx.message.content.startswith('$hanger'):
             await ctx.send('https://giphy.com/gifs/cbc-oh-well-dragons-den-xUOxf749qtWRklIbh6')
             return
