@@ -1973,6 +1973,11 @@ class Racing(commands.Cog):
         """Global stats for the current racing season"""
         async with self.client.pool.acquire() as connection:
             async with connection.transaction():
+                global_info = await connection.fetchrow(
+                    """SELECT COUNT(DISTINCT race_id) AS races, COUNT(*) AS entries
+                    FROM gray.racing_results
+                    WHERE position IS NOT NULL
+                    """)
                 all_kills_disables = await connection.fetch(
                     """SELECT discord_uid, kills, disables FROM gray.racing_results
                     WHERE position IS NOT NULL""")
@@ -2010,7 +2015,7 @@ class Racing(commands.Cog):
                             return '{}'.format(idx)
                     return "\n".join(f"{get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {round(entry[key], decimals)}" for idx, entry in enumerate(standing[:3]))
 
-                embed = discord.Embed(title='Season Stats', description='')
+                embed = discord.Embed(title='Season Stats', description='{}/50 races\n{} participations ({:.2f} average)'.format(global_info['races'], global_info['entries'], global_info['entries'] / global_info['races']))
                 embed.set_thumbnail(url='https://media.discordapp.net/attachments/800431166997790790/840009740855934996/gray_squadron_logo.png')
                 standing = list(avg_sum_results)
                 standing.sort(key=lambda x: x.get('participation_count'), reverse=True)
