@@ -1741,9 +1741,9 @@ class Racing(commands.Cog):
         await ctx.send("Something went wrong while running the command!", delete_after=10)
         await helper.bot_log(self.client, error, ctx.message)
 
-    @commands.command(aliases=['race_stat'])
-    async def race_stats(self, ctx, user: discord.Member = None):
-        """$race_stats @user"""
+    @commands.command(aliases=['pilot_stat'])
+    async def pilot_stats(self, ctx, user: discord.Member = None):
+        """$pilot_stats @user"""
         emoji_list = ['◀', '▶', '🛑']
         sent_embed = None
         current_page_idx = 0
@@ -1961,6 +1961,98 @@ class Racing(commands.Cog):
                 await sent_embed.clear_reactions()
                 await asyncio.sleep(30)
                 await sent_embed.delete()
+                return
+
+    @pilot_stats.error
+    async def pilot_stats_error(self, ctx, error):
+        await ctx.send("Something went wrong while running the command!", delete_after=10)
+        await helper.bot_log(self.client, error, ctx.message)
+
+    @commands.command(aliases=['race_stat'])
+    async def race_stats(self, ctx):
+        """Global stats for the current racing season"""
+        async with self.client.pool.acquire() as connection:
+            async with connection.transaction():
+                all_kills_disables = await connection.fetch(
+                    """SELECT discord_uid, kills, disables FROM gray.racing_results
+                    WHERE position IS NOT NULL""")
+    
+                avg_sum_results = await connection.fetch(
+                    """SELECT discord_uid, 
+                    COUNT(race_id) AS participation_count,
+                    SUM(is_alive::int) AS finished_count,
+                    AVG(position) AS avg_position, 
+                    SUM(CASE position WHEN 1 THEN 1 ELSE 0 END) AS wins, 
+                    COUNT(race_id) - SUM(is_alive::int) AS death,
+                    SUM(is_race_best_lap::int) AS race_best_laps_count
+                    FROM gray.racing_results
+                    WHERE position IS NOT NULL
+                    GROUP BY discord_uid""")
+
+                all_kills = {}
+                all_disables = {}
+                for entry in all_kills_disables:
+                    all_kills[entry['discord_uid']] = 0
+                    all_disables[entry['discord_uid']] = 0
+                for entry in all_kills_disables:
+                    all_kills[entry['discord_uid']] += len(entry['kills'])
+                    all_disables[entry['discord_uid']] += len(entry['disables'])
+
+                def get_top_3(standing: [], key: str, decimals: int = 0) -> str:
+                    def get_rank(idx: int) -> str:
+                        if idx == 1:
+                            return '🥇'
+                        elif idx == 2:
+                            return '🥈'
+                        elif idx == 3:
+                            return '🥉'
+                        else:
+                            return '{}'.format(idx)
+                    return "\n".join(f"{get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {round(entry[key], decimals)}" for idx, entry in enumerate(standing[:3]))
+
+                embed = discord.Embed(title='Global Racing Stats', description='')
+                embed.set_thumbnail(url='https://media.discordapp.net/attachments/800431166997790790/840009740855934996/gray_squadron_logo.png')
+                standing = list(avg_sum_results)
+                standing.sort(key=lambda x: x.get('participation_count'), reverse=True)
+                embed.add_field(name='Most participations', value=get_top_3(standing, 'participation_count'), inline=False)
+
+                standing.sort(key=lambda x: x.get('wins'), reverse=True)
+                embed.add_field(name='Most wins', value=get_top_3(standing, 'wins'), inline=False)
+
+                standing.sort(key=lambda x: x.get('avg_position'), reverse=True)
+                embed.add_field(name='Average position', value=get_top_3(standing, 'avg_position', 2), inline=False)
+
+                standing.sort(key=lambda x: x.get('death'), reverse=True)
+                embed.add_field(name='Most death', value=get_top_3(standing, 'death'), inline=False)
+
+                kills_list = []
+                for k, v in all_kills.items():
+                    kills_list += [{'discord_uid': k, 'kills': v}]
+                kills_list.sort(key=lambda x: x.get('kills'), reverse=True)
+                embed.add_field(name='Most kills', value=get_top_3(kills_list, 'kills'), inline=False)
+
+                disables_list = []
+                for k, v in all_disables.items():
+                    disables_list += [{'discord_uid': k, 'disables': v}]
+                disables_list.sort(key=lambda x: x.get('disables'), reverse=True)
+                embed.add_field(name='Most disables', value=get_top_3(disables_list, 'disables'), inline=False)
+
+                kd_list = []
+                for entry in standing:
+                    kd = 0.0
+                    try:
+                        kd = all_kills[entry['discord_uid']] / entry['death']
+                    except Exception as e:
+                        pass
+                    kd_list += [{'discord_uid': entry['discord_uid'], 'kd': kd}]
+
+                kd_list.sort(key=lambda x: x.get('kd'), reverse=True)
+                embed.add_field(name='K/D', value=get_top_3(kd_list, 'kd', 2), inline=False)
+
+                standing.sort(key=lambda x: x.get('race_best_laps_count'), reverse=True)
+                embed.add_field(name='Most best laps', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
+
+                sent_embed = await ctx.send(embed=embed)
                 return
 
     @race_stats.error
