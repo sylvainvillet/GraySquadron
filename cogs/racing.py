@@ -1824,7 +1824,7 @@ class Racing(commands.Cog):
                                                       most_used_ship_name: str, most_used_ship_count: int, 
                                                       current_participation_streak: int, max_participation_streak: int,
                                                       current_finishing_streak: int, max_finishing_streak: int,) -> discord.Embed:
-                    embed = discord.Embed(title='Racing Stats', description='', colour=user.colour)
+                    embed = discord.Embed(title='Pilot Stats', description='', colour=user.colour)
                     embed.set_author(name=user.display_name, icon_url=user.avatar_url)
                     embed.add_field(name='Races finished', value='{} / {} ({:.1f}%)'.format(finished_count, participation_count, 
                                                                                             finished_count / participation_count * 100), inline=True)
@@ -2010,7 +2010,7 @@ class Racing(commands.Cog):
                             return '{}'.format(idx)
                     return "\n".join(f"{get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {round(entry[key], decimals)}" for idx, entry in enumerate(standing[:3]))
 
-                embed = discord.Embed(title='Global Racing Stats', description='')
+                embed = discord.Embed(title='Season Stats', description='')
                 embed.set_thumbnail(url='https://media.discordapp.net/attachments/800431166997790790/840009740855934996/gray_squadron_logo.png')
                 standing = list(avg_sum_results)
                 standing.sort(key=lambda x: x.get('participation_count'), reverse=True)
@@ -2019,7 +2019,7 @@ class Racing(commands.Cog):
                 standing.sort(key=lambda x: x.get('wins'), reverse=True)
                 embed.add_field(name='Most wins', value=get_top_3(standing, 'wins'), inline=False)
 
-                standing.sort(key=lambda x: x.get('avg_position'), reverse=True)
+                standing.sort(key=lambda x: x.get('avg_position'), reverse=False)
                 embed.add_field(name='Average position', value=get_top_3(standing, 'avg_position', 2), inline=False)
 
                 standing.sort(key=lambda x: x.get('death'), reverse=True)
@@ -2050,7 +2050,7 @@ class Racing(commands.Cog):
                 embed.add_field(name='K/D', value=get_top_3(kd_list, 'kd', 2), inline=False)
 
                 standing.sort(key=lambda x: x.get('race_best_laps_count'), reverse=True)
-                embed.add_field(name='Most best laps', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
+                embed.add_field(name='Most fastest lap', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
 
                 sent_embed = await ctx.send(embed=embed)
                 return
