@@ -1800,6 +1800,10 @@ class Racing(commands.Cog):
                     LIMIT 1""",
                     user.id)
 
+                if not avg_sum_results:
+                    await ctx.send('No data yet, come back after the first race!')
+                    return
+
                 all_kills = []
                 all_disables = []
                 most_kills = 0
@@ -1972,6 +1976,11 @@ class Racing(commands.Cog):
                     FROM gray.racing_results
                     WHERE position IS NOT NULL
                     """)
+
+                if not global_info:
+                    await ctx.send('No data yet, come back after the first race!')
+                    return
+
                 all_kills_disables = await connection.fetch(
                     """SELECT discord_uid, kills, disables FROM gray.racing_results
                     WHERE position IS NOT NULL""")
