@@ -1986,8 +1986,8 @@ class Racing(commands.Cog):
                     COUNT(race_id) - SUM(is_alive::int) AS death,
                     SUM(is_race_best_lap::int) AS race_best_laps_count
                     FROM gray.racing_results
-                    WHERE position IS NOT NULL
-                    GROUP BY discord_uid""")
+                    WHERE position IS NOT NULL AND discord_uid <> $1
+                    GROUP BY discord_uid""", self.bot_discord_uid)
 
                 all_kills = {}
                 all_disables = {}
