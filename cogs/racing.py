@@ -2044,7 +2044,7 @@ class Racing(commands.Cog):
                 embed.add_field(name='Most fastest laps', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
 
                 standing.sort(key=lambda x: x.get('total_credits_gain'), reverse=True)
-                embed.add_field(name='Most credits gain', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
+                embed.add_field(name='Most credits gained', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['total_credits_gain'])}" for idx, entry in enumerate(standing[:3])), inline=False)
 
                 sent_embed = await ctx.send(embed=embed)
                 return
