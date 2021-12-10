@@ -63,13 +63,6 @@ def record_to_dict(f_record, key_name: str):
                     return_dict[key] = {f: v}
     return return_dict
 
-def record_to_list(f_record) -> []:
-    """Converts a fetched record into a list"""
-    return_list = []
-    for record in f_record:
-        return_list += record
-    return return_list
-
 def get_member_display_name(guild, discord_uid: int) -> str:
     member = guild.get_member(discord_uid)
     if member is None:
@@ -384,3 +377,13 @@ def add_splittable_field(embed: discord.Embed, name: str, valuesList: [], inline
                 value=value, inline=inline)
     else:    
         embed.add_field(name=name, value='\n'.join(valuesList), inline=inline)
+
+def get_rank(idx: int) -> str:
+    if idx == 1:
+        return '🥇'
+    elif idx == 2:
+        return '🥈'
+    elif idx == 3:
+        return '🥉'
+    else:
+        return '{}.'.format(idx)

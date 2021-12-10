@@ -940,17 +940,11 @@ class Racing(commands.Cog):
                     await current_embed.delete()
                     break
 
-    def get_rank(self, idx: int, is_alive: bool) -> str:
+    def get_rank_or_skull(self, idx: int, is_alive: bool) -> str:
         if not is_alive:
             return '💀'
-        if idx == 1:
-            return '🥇'
-        elif idx == 2:
-            return '🥈'
-        elif idx == 3:
-            return '🥉'
         else:
-            return '{}.'.format(idx)
+            return helper.get_rank(idx)
 
     def get_event_string(self, events: dict, lap: int, victim_discord_uid: int) -> str:
         event = events[lap][victim_discord_uid]
@@ -986,7 +980,7 @@ class Racing(commands.Cog):
         for idx, discord_uid in enumerate(race_result):
             name = helper.get_member_mention(self.guild, discord_uid)
             laps_completed = race_result[discord_uid]['laps_completed']
-            position = self.get_rank(idx + 1, race_result[discord_uid]['is_alive'])
+            position = self.get_rank_or_skull(idx + 1, race_result[discord_uid]['is_alive'])
             if idx == 0:
                 time_string = helper.race_time_to_string(winner_final_time)
             elif laps_completed == winner_laps_completed:
@@ -1986,6 +1980,7 @@ class Racing(commands.Cog):
                     """SELECT discord_uid, 
                     COUNT(race_id) AS participation_count,
                     SUM(is_alive::int) AS finished_count,
+                    SUM(gain_credits) AS total_credits_gain, 
                     AVG(position) AS avg_position, 
                     SUM(CASE position WHEN 1 THEN 1 ELSE 0 END) AS wins, 
                     COUNT(race_id) - SUM(is_alive::int) AS death,
@@ -2004,16 +1999,7 @@ class Racing(commands.Cog):
                     all_disables[entry['discord_uid']] += len(entry['disables'])
 
                 def get_top_3(standing: [], key: str, decimals: int = 0) -> str:
-                    def get_rank(idx: int) -> str:
-                        if idx == 1:
-                            return '🥇'
-                        elif idx == 2:
-                            return '🥈'
-                        elif idx == 3:
-                            return '🥉'
-                        else:
-                            return '{}'.format(idx)
-                    return "\n".join(f"{get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {round(entry[key], decimals)}" for idx, entry in enumerate(standing[:3]))
+                    return "\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {round(entry[key], decimals)}" for idx, entry in enumerate(standing[:3]))
 
                 embed = discord.Embed(title='Season Stats', description='{}/50 races\n{} participations ({:.1f} average)'.format(global_info['races'], global_info['entries'], global_info['entries'] / global_info['races']))
                 embed.set_thumbnail(url='https://media.discordapp.net/attachments/800431166997790790/840009740855934996/gray_squadron_logo.png')
@@ -2055,7 +2041,10 @@ class Racing(commands.Cog):
                 embed.add_field(name='K/D', value=get_top_3(kd_list, 'kd', 2), inline=False)
 
                 standing.sort(key=lambda x: x.get('race_best_laps_count'), reverse=True)
-                embed.add_field(name='Most fastest lap', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
+                embed.add_field(name='Most fastest laps', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
+
+                standing.sort(key=lambda x: x.get('total_credits_gain'), reverse=True)
+                embed.add_field(name='Most credits gain', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
 
                 sent_embed = await ctx.send(embed=embed)
                 return
@@ -2113,19 +2102,9 @@ class RaceLb(menus.ListPageSource):
         return embed
 
     async def format_page(self, menu, entries):
-        def get_rank(idx: int) -> str:
-            if idx == 1:
-                return '🥇'
-            elif idx == 2:
-                return '🥈'
-            elif idx == 3:
-                return '🥉'
-            else:
-                return '{}'.format(idx)
-
         offset = (menu.current_page * self.per_page) + 1
         fields = []
-        table = "\n".join(f"{get_rank(idx+offset)}. {helper.get_member_display_name(self.racing.guild, entry[0])} - {entry[1]:,} pts" for idx, entry in enumerate(entries))
+        table = "\n".join(f"{helper.get_rank(idx+offset)} {helper.get_member_display_name(self.racing.guild, entry[0])} - {entry[1]:,} pts" for idx, entry in enumerate(entries))
         fields.append(("Rank", table))
         return await self.write_page(offset, fields)
 
