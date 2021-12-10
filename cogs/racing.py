@@ -2093,18 +2093,6 @@ class Racing(commands.Cog):
         await ctx.send("Something went wrong while running the command!", delete_after=10)
         await helper.bot_log(self.client, error, ctx.message)
 
-    @commands.command()
-    @commands.has_any_role('Droid Engineer')
-    async def race_reset(self, ctx):
-        """Global stats for the current racing season"""
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                global_info = await connection.fetchrow(
-                    """SELECT COUNT(DISTINCT race_id) AS races, COUNT(*) AS entries
-                    FROM gray.racing_results
-                    WHERE position IS NOT NULL
-                    """)
-
 class RaceLb(menus.ListPageSource):
     def __init__(self, racing, ctx, data):
         self.ctx = ctx
