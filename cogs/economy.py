@@ -407,9 +407,10 @@ class Economy(commands.Cog):
 
     @commands.command()
     @commands.has_any_role('Droid Engineer')
-    async def credit_hax(self, ctx, member: discord.Member = None, count: int = 100_000_000):
+    async def credit_hax(self, ctx, member: discord.Member, amount: str):
         """For testing only"""
         user = member
+        count = helper.parse_amount(amount)
         if user is None:
             user = ctx.author
         await self.change_credits(user.id, count)

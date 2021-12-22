@@ -244,7 +244,7 @@ def parse_amount(amount: str) -> int:
     else:
         return int(float(amountLowerCase[:len(amountLowerCase)-1])*10**exp)
 
-def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
+def credits_to_string(amount: float, significant_numbers: int = 3) -> str:
     """Returns "XXX'XXX" C if under a million, otherwise "XXX MC" """
     letter = ''
     divider = 1
@@ -253,10 +253,10 @@ def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
     if absAmount >= 10**24:
         letter = 'Y'
         divider = 10**24
-    if absAmount >= 10**21:
+    elif absAmount >= 10**21:
         letter = 'Z'
         divider = 10**21
-    if absAmount >= 10**18:
+    elif absAmount >= 10**18:
         letter = 'E'
         divider = 10**18
     elif absAmount >= 10**15:
