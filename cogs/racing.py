@@ -1990,6 +1990,8 @@ class Racing(commands.Cog):
                     COUNT(race_id) AS participation_count,
                     SUM(is_alive::int) AS finished_count,
                     SUM(gain_credits) AS total_credits_gain, 
+                    SUM(gain_credits) - SUM(entry_bet_credits) AS net_credits_gain, 
+                    SUM(entry_bet_credits) - SUM(gain_credits) AS net_credits_lost, 
                     AVG(position) AS avg_position, 
                     SUM(CASE position WHEN 1 THEN 1 ELSE 0 END) AS wins, 
                     COUNT(race_id) - SUM(is_alive::int) AS death,
@@ -2052,8 +2054,11 @@ class Racing(commands.Cog):
                 standing.sort(key=lambda x: x.get('race_best_laps_count'), reverse=True)
                 embed.add_field(name='Most fastest laps', value=get_top_3(standing, 'race_best_laps_count'), inline=False)
 
-                standing.sort(key=lambda x: x.get('total_credits_gain'), reverse=True)
-                embed.add_field(name='Most credits gained', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['total_credits_gain'])}" for idx, entry in enumerate(standing[:3])), inline=False)
+                standing.sort(key=lambda x: x.get('net_credits_gain'), reverse=True)
+                embed.add_field(name='Most credits gained (net)', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['net_credits_gain'])}" for idx, entry in enumerate(standing[:3])), inline=False)
+
+                standing.sort(key=lambda x: x.get('net_credits_lost'), reverse=True)
+                embed.add_field(name='Most credits lost (net)', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['net_credits_lost'])}" for idx, entry in enumerate(standing[:3])), inline=False)
 
                 sent_embed = await ctx.send(embed=embed)
                 return
