@@ -1990,6 +1990,7 @@ class Racing(commands.Cog):
                     COUNT(race_id) AS participation_count,
                     SUM(is_alive::int) AS finished_count,
                     SUM(gain_credits) AS total_credits_gain, 
+                    SUM(jackpot) AS jackpots, 
                     SUM(gain_credits) - SUM(entry_bet_credits) AS net_credits_gain, 
                     SUM(entry_bet_credits) - SUM(gain_credits) AS net_credits_lost, 
                     AVG(position) AS avg_position, 
@@ -1998,6 +1999,13 @@ class Racing(commands.Cog):
                     SUM(is_race_best_lap::int) AS race_best_laps_count
                     FROM gray.racing_results
                     WHERE position IS NOT NULL AND discord_uid <> $1
+                    GROUP BY discord_uid""", self.bot_discord_uid)
+    
+                jackpot_feeders = await connection.fetch(
+                    """SELECT discord_uid, 
+                    SUM(entry_bet_credits) AS entry_bets
+                    FROM gray.racing_results
+                    WHERE position IS NOT NULL AND discord_uid <> $1 AND is_alive = 0
                     GROUP BY discord_uid""", self.bot_discord_uid)
 
                 all_kills = {}
@@ -2059,6 +2067,13 @@ class Racing(commands.Cog):
 
                 standing.sort(key=lambda x: x.get('net_credits_lost'), reverse=True)
                 embed.add_field(name='Most credits lost (net)', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['net_credits_lost'])}" for idx, entry in enumerate(standing[:3])), inline=False)
+
+                standing.sort(key=lambda x: x.get('jackpots'), reverse=True)
+                embed.add_field(name='Jackpot winners', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['jackpots'])}" for idx, entry in enumerate(standing[:3])), inline=False)
+
+                jackpot_feeders_list = list(jackpot_feeders)
+                jackpot_feeders_list.sort(key=lambda x: x.get('entry_bets'), reverse=True)
+                embed.add_field(name='Jackpot feeders', value="\n".join(f"{helper.get_rank(idx+1)} {helper.get_member_display_name(self.guild, entry['discord_uid'])} {helper.credits_to_string(entry['entry_bets'])}" for idx, entry in enumerate(jackpot_feeders_list[:3])), inline=False)
 
                 sent_embed = await ctx.send(embed=embed)
                 return
